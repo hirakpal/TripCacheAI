@@ -1,11 +1,12 @@
 import streamlit as st
 from langchain_openai import ChatOpenAI
 from langgraph_supervisor import create_supervisor
-from langgraph.checkpoint.memory import InMemorySaver
+#from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from backend.agents.hotel_agent import get_hotel_agent
 from backend.agents.context_agent import get_context_agent
-from backend.agents.itinerary_agent import get_itinerary_agent  # NEW IMPORT
+from backend.agents.itinerary_agent import get_itinerary_agent
 
 # Initialize the shared LLM using Streamlit secrets
 model = ChatOpenAI(
@@ -32,7 +33,9 @@ workflow = create_supervisor(
     ),
     output_mode="last_message",
 )
-
+# Initialize the SQLite checkpointer. 
+# This automatically creates a 'trip_memory.sqlite' file in your project root.
+memory = SqliteSaver.from_conn_string("trip_memory.sqlite")
 # Compile with memory
-memory = InMemorySaver()
+#memory = InMemorySaver()
 app = workflow.compile(checkpointer=memory)
