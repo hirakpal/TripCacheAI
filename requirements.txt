@@ -1,6 +1,7 @@
-langchain-openai
+langchain
 langchain-core
+langchain-openai
 langgraph
 langgraph-supervisor
 streamlit
-python-dotenv
+requests

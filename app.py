@@ -22,12 +22,16 @@ with st.sidebar:
         st.success("New session started!")
 
 # Display chat history
+# Display chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Chat input
-if user_input := st.chat_input("Where are you planning to go?"):
+# 1. Explicitly assign the input to a variable first
+user_input = st.chat_input("Where are you planning to go?")
+
+# 2. Check if the user actually submitted something
+if user_input:
     # Add user message to UI state
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):

@@ -1,3 +1,4 @@
+import streamlit as st
 from langchain_openai import ChatOpenAI
 from langgraph_supervisor import create_supervisor
 from langgraph.checkpoint.memory import InMemorySaver
@@ -6,7 +7,11 @@ from backend.agents.hotel_agent import get_hotel_agent
 from backend.agents.context_agent import get_context_agent
 
 # Initialize the shared LLM
-model = ChatOpenAI(model="gpt-4o", temperature=0)
+model = ChatOpenAI(
+    model="gpt-4o", 
+    temperature=0, 
+    api_key=st.secrets["OPENAI_API_KEY"]
+)
 
 # Instantiate the separate agents
 hotel_agent = get_hotel_agent(model)
