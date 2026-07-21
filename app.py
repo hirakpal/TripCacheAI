@@ -81,7 +81,7 @@ if user_input := st.chat_input("Where to? Or what would you like to change?"):
     st.session_state.messages.append({
         "role": "assistant", 
         "content": final_message_content,
-        "source": agent_source  # <-- NEW: Storing the metadata
+        
     })
     st.rerun()
 
