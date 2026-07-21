@@ -6,4 +6,4 @@ langgraph-supervisor
 langgraph-checkpoint-sqlite
 streamlit
 requests
-langchain_community
+langchain-ollama
