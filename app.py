@@ -15,7 +15,7 @@ def reset_trip():
     """Wipes the frontend chat and generates a new LangGraph thread ID."""
     st.session_state.thread_id = str(uuid.uuid4())
     st.session_state.messages = []
-    st.rerun()
+    
 
 st.title("TripCacheAI ✈️")
 st.caption("Multi-Agent Travel Planner (Human-in-the-Loop)")
