@@ -6,7 +6,7 @@ def get_itinerary_agent(model):
         model=model,
         tools=[search_attractions],
         name="itinerary_expert",
-        state_prompt=(
+        system_prompt=(
             "You are an expert travel itinerary planner. "
             "Use your tools to find local attractions based on the user's interests. "
             "Create a structured, day-by-day schedule grouping activities logically by location. "
