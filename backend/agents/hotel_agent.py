@@ -6,6 +6,7 @@ def get_hotel_agent(model):
     return create_agent(
         model=model,
         tools=[search_hotels],
+        name="hotel_expert",
         system_prompt=(
             "You are a specialized hotel booking assistant. "
             "Your goal is to recommend accommodations using the 'search_hotels' tool. "
