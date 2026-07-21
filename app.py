@@ -6,6 +6,18 @@ from backend.graph import app as trip_agent
 # Use "wide" to support the dual-pane layout
 st.set_page_config(page_title="TripCacheAI", layout="wide")
 
+# --- Inject Custom CSS for better text sizing ---
+st.markdown("""
+<style>
+    /* Shrink markdown headers and text to fit the columns better */
+    [data-testid="stMarkdownContainer"] h1 { font-size: 1.4rem !important; padding-bottom: 0.5rem; }
+    [data-testid="stMarkdownContainer"] h2 { font-size: 1.2rem !important; padding-bottom: 0.5rem; }
+    [data-testid="stMarkdownContainer"] h3 { font-size: 1.0rem !important; padding-bottom: 0.5rem; }
+    [data-testid="stMarkdownContainer"] p, 
+    [data-testid="stMarkdownContainer"] li { font-size: 0.9rem !important; line-height: 1.5; }
+</style>
+""", unsafe_allow_html=True)
+
 # --- 2. Callbacks ---
 def reset_trip():
     """Wipes the frontend chat and generates a new LangGraph thread ID."""
