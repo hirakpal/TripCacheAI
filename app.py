@@ -33,11 +33,11 @@ for msg in st.session_state.messages:
 # 4. Determine if we should show HITL Action Buttons
 show_buttons = False
 if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "assistant":
-    last_message_text = st.session_state.messages[-1]["content"]
+    # Retrieve the source we saved earlier
+    last_source = st.session_state.messages[-1].get("source", "")
     
-    # Heuristic: If the message ends with a question mark, the context agent is likely still gathering info.
-    # We only show buttons if it appears to be a finalized proposal (no trailing question mark).
-    if not last_message_text.strip().endswith("?"):
+    # Only show buttons if the plan-generating agents just spoke
+    if last_source in ["hotel_expert", "itinerary_expert"]:
         show_buttons = True
 
 # 5. Handle standard text input
