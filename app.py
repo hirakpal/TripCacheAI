@@ -4,52 +4,81 @@ from backend.graph import app as trip_agent
 
 st.set_page_config(page_title="TripCacheAI", layout="centered")
 
-# Initialize session state for memory and thread ID
+# 1. Initialize session state
 if "thread_id" not in st.session_state:
     st.session_state.thread_id = str(uuid.uuid4())
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 st.title("TripCacheAI ✈️")
-st.caption("Multi-Agent Travel Planner Prototype")
+st.caption("Multi-Agent Travel Planner (Human-in-the-Loop)")
 
-# Sidebar controls
+# 2. Sidebar controls
 with st.sidebar:
     st.subheader("Session Controls")
     if st.button("Start New Trip"):
         st.session_state.thread_id = str(uuid.uuid4())
         st.session_state.messages = []
-        st.success("New session started!")
+        st.rerun()
 
-# Display chat history
+# 3. Render existing chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 1. Explicitly assign the input to a variable first
-user_input = st.chat_input("Where are you planning to go?")
+# 4. Determine if we should show HITL Action Buttons
+# We only show them if the conversation is active and the AI just responded
+show_buttons = False
+if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "assistant":
+    show_buttons = True
 
-# 2. Check if the user actually submitted something
-if user_input:
-    # Add user message to UI state
-    st.session_state.messages.append({"role": "user", "content": user_input})
+# 5. Handle standard text input
+if user_input := st.chat_input("Where to? Or what would you like to change?"):
+    # Display and save user message
     with st.chat_message("user"):
         st.markdown(user_input)
+    st.session_state.messages.append({"role": "user", "content": user_input})
 
-    # Prepare configuration for LangGraph (this ties the turn to the specific thread_id)
+    # Prepare configuration for LangGraph memory
     config = {"configurable": {"thread_id": st.session_state.thread_id}}
 
+    # Invoke the multi-agent graph
     with st.chat_message("assistant"):
         with st.spinner("TripCacheAI is thinking..."):
-            # We only need to pass the newest message; LangGraph's checkpointer handles history
             inputs = {"messages": [("user", user_input)]}
-            
-            # Invoke the graph
             result = trip_agent.invoke(inputs, config=config)
             
-            # Extract the final assistant message
             final_message = result["messages"][-1].content
             st.markdown(final_message)
             
-            # Save assistant message to UI state
-            st.session_state.messages.append({"role": "assistant", "content": final_message})
+    # Save the assistant's response to UI state and force a rerun to update buttons
+    st.session_state.messages.append({"role": "assistant", "content": final_message})
+    st.rerun()
+
+# 6. Render the HITL Action Buttons
+if show_buttons:
+    st.markdown("---")
+    st.write("**What do you think of this suggestion?**")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("✅ Approve Plan"):
+            approval_msg = "I approve this plan. Let's lock it in."
+            
+            # Save the simulated user approval to UI state
+            st.session_state.messages.append({"role": "user", "content": approval_msg})
+            
+            # Update the backend LangGraph memory so the supervisor knows it was approved
+            config = {"configurable": {"thread_id": st.session_state.thread_id}}
+            with st.spinner("Finalizing..."):
+                inputs = {"messages": [("user", approval_msg)]}
+                result = trip_agent.invoke(inputs, config=config)
+                st.session_state.messages.append({"role": "assistant", "content": result["messages"][-1].content})
+            
+            # Refresh the UI to clear the buttons and show the finalization message
+            st.rerun()
+            
+    with col2:
+        if st.button("🔄 Revise Plan"):
+            # Inform the user to use the standard input for revisions
+            st.info("Please type the changes you'd like to make in the chat box below!")
