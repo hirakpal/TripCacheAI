@@ -56,11 +56,21 @@ if user_input := st.chat_input("Where to? Or what would you like to change?"):
             inputs = {"messages": [("user", user_input)]}
             result = trip_agent.invoke(inputs, config=config)
             
-            final_message = result["messages"][-1].content
-            st.markdown(final_message)
+            # Extract the raw AIMessage object
+            final_ai_message = result["messages"][-1]
+            final_message_content = final_ai_message.content
+            
+            # Extract which agent generated this response (defaults to 'supervisor' if none found)
+            agent_source = getattr(final_ai_message, "name", "supervisor")
+            
+            st.markdown(final_message_content)
             
     # Save the assistant's response to UI state and force a rerun to update buttons
-    st.session_state.messages.append({"role": "assistant", "content": final_message})
+    st.session_state.messages.append({
+        "role": "assistant", 
+        "content": final_message_content,
+        "source": agent_source  # <-- NEW: Storing the metadata
+    })
     st.rerun()
 
 # 6. Render the HITL Action Buttons
