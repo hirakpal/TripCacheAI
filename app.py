@@ -1,6 +1,7 @@
 import streamlit as st
 import uuid
 from backend.graph import app as trip_agent
+import re
 
 # --- 1. Set Layout ---
 # Use "wide" to support the dual-pane layout
@@ -129,7 +130,6 @@ with chat_col:
 with itinerary_col:
     st.subheader("📅 Your Itinerary")
     
-    # Fetch the raw backend state from the SQLite database
     config = {"configurable": {"thread_id": st.session_state.thread_id}}
     current_state = trip_agent.get_state(config)
     
@@ -145,9 +145,45 @@ with itinerary_col:
                     break
         
         if latest_plan:
-            # --- THE FIX: height ensures vertical scroll, border frames it ---
             with st.container(height=650, border=True):
-                st.markdown(latest_plan)
+                # --- NEW: Dynamic Tab Parsing Logic ---
+                
+                # Split the text right before any line that starts with "Day X"
+                # (Handles markdown like "## Day 1:", "**Day 2**", etc.)
+                chunks = re.split(r'(?im)^(?=#{0,4}\s*\*?Day\s*\d+)', latest_plan)
+                chunks = [c.strip() for c in chunks if c.strip()]
+                
+                intro_text = ""
+                day_chunks = []
+                
+                # Categorize the chunks into "Intro" vs "Actual Days"
+                for chunk in chunks:
+                    if re.search(r'(?i)^#{0,4}\s*\*?Day\s*\d+', chunk):
+                        day_chunks.append(chunk)
+                    else:
+                        intro_text += chunk + "\n\n"
+                        
+                # If we found multiple days, render the tabs!
+                if len(day_chunks) > 1:
+                    if intro_text:
+                        st.markdown(intro_text) # Render any intro text above the tabs
+                        
+                    # Extract clean tab names (e.g., "Day 1", "Day 2")
+                    tab_names = []
+                    for d in day_chunks:
+                        match = re.search(r'(?i)Day\s*\d+', d)
+                        tab_names.append(match.group(0).title() if match else "Day")
+                        
+                    # Generate the tabs dynamically
+                    tabs = st.tabs(tab_names)
+                    
+                    # Fill each tab with its respective content
+                    for i, tab in enumerate(tabs):
+                        with tab:
+                            st.markdown(day_chunks[i])
+                else:
+                    # Fallback: Just render normally if it's 1 day or parsing failed
+                    st.markdown(latest_plan)
         else:
             st.info("Your day-wise plan will appear here once generated.")
     else:
