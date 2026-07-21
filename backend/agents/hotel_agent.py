@@ -6,7 +6,7 @@ def get_hotel_agent(model):
     return create_agent(
         model=model,
         tools=[search_hotels],
-        prompt=(
+        system_prompt=(
             "You are a specialized hotel booking assistant. "
             "Your goal is to recommend accommodations using the 'search_hotels' tool. "
             "CRITICAL: The 'search_hotels' tool requires 4 mandatory inputs: location, budget, check-in date, and check-out date. "
