@@ -59,10 +59,20 @@ if user_input := st.chat_input("Where to? Or what would you like to change?"):
             # Extract the raw AIMessage object
             final_ai_message = result["messages"][-1]
             final_message_content = final_ai_message.content
-            
-            # Extract which agent generated this response (defaults to 'supervisor' if none found)
-            agent_source = getattr(final_ai_message, "name", "supervisor")
-            
+            # Check if a specialist acted during this turn
+            plan_generated = False
+            for m in reversed(result["messages"]):
+                if m.type == "human": 
+                    break
+                if getattr(m, "name", "") in ["hotel_expert", "itinerary_expert"]:
+                    plan_generated = True
+                    break
+            # --- NEW: Explicitly commit the state transition to the database ---
+            if plan_generated:
+                trip_agent.update_state(config, {"plan_status": "pending_approval"})
+            else:
+                trip_agent.update_state(config, {"plan_status": "gathering"})
+
             st.markdown(final_message_content)
             
     # Save the assistant's response to UI state and force a rerun to update buttons
@@ -74,7 +84,12 @@ if user_input := st.chat_input("Where to? Or what would you like to change?"):
     st.rerun()
 
 # 6. Render the HITL Action Buttons
-if show_buttons:
+# Fetch the current state directly from the SQLite database
+config = {"configurable": {"thread_id": st.session_state.thread_id}}
+current_state = trip_agent.get_state(config)
+current_status = current_state.values.get("plan_status", "gathering")
+
+if current_status == "pending_approval":
     st.markdown("---")
     st.write("**What do you think of this suggestion?**")
     col1, col2 = st.columns(2)
@@ -83,20 +98,16 @@ if show_buttons:
         if st.button("✅ Approve Plan"):
             approval_msg = "I approve this plan. Let's lock it in."
             
-            # Save the simulated user approval to UI state
-            st.session_state.messages.append({"role": "user", "content": approval_msg})
+            # --- NEW: Explicitly transition the state to approved ---
+            trip_agent.update_state(config, {"plan_status": "approved"})
             
-            # Update the backend LangGraph memory so the supervisor knows it was approved
-            config = {"configurable": {"thread_id": st.session_state.thread_id}}
+            st.session_state.messages.append({"role": "user", "content": approval_msg})
             with st.spinner("Finalizing..."):
                 inputs = {"messages": [("user", approval_msg)]}
                 result = trip_agent.invoke(inputs, config=config)
                 st.session_state.messages.append({"role": "assistant", "content": result["messages"][-1].content})
-            
-            # Refresh the UI to clear the buttons and show the finalization message
             st.rerun()
             
     with col2:
         if st.button("🔄 Revise Plan"):
-            # Inform the user to use the standard input for revisions
             st.info("Please type the changes you'd like to make in the chat box below!")
