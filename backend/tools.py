@@ -34,3 +34,45 @@ def search_hotels(location: str, budget: str, check_in_date: str, check_out_date
         },
         "available_hotels": results
     }
+
+@tool
+def search_attractions(city: str, interests: str = "top tourist attractions") -> str:
+    """Search for real activities, landmarks, and attractions in a city using Google Places (Mock Version)."""
+    
+    # Mock data customized based on the input parameters
+    mock_places = [
+        {
+            "name": f"The Great {city} Museum", 
+            "address": f"123 Museum Way, {city}", 
+            "rating": 4.8
+        },
+        {
+            "name": f"{city} Central Park", 
+            "address": f"456 Green Ave, {city}", 
+            "rating": 4.7
+        },
+        {
+            "name": f"Historic Downtown {city}", 
+            "address": f"789 Main St, {city}", 
+            "rating": 4.5
+        },
+        {
+            "name": f"The {interests.title()} Experience", 
+            "address": f"101 Tourist Blvd, {city}", 
+            "rating": 4.3
+        },
+        {
+            "name": f"{city} Observation Deck",
+            "address": f"999 Sky High Tower, {city}",
+            "rating": 4.9
+        }
+    ]
+    
+    lines = []
+    for p in mock_places:
+        name = p.get("name", "Unknown")
+        addr = p.get("address", "N/A")
+        rating = p.get("rating", "N/A")
+        lines.append(f"{name} | {addr} | rating: {rating}")
+        
+    return "\n".join(lines) if lines else f"No attractions found in {city}."
