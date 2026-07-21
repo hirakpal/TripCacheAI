@@ -64,7 +64,9 @@ if user_input := st.chat_input("Where to? Or what would you like to change?"):
             for m in reversed(result["messages"]):
                 if m.type == "human": 
                     break
-                if getattr(m, "name", "") in ["hotel_expert", "itinerary_expert"]:
+
+                agent_name = getattr(m, "name", "")
+                if agent_name == "itinerary_expert":
                     plan_generated = True
                     break
             # --- NEW: Explicitly commit the state transition to the database ---
