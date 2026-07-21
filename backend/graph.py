@@ -1,3 +1,4 @@
+import sqlite3
 import streamlit as st
 from langchain_openai import ChatOpenAI
 from langgraph_supervisor import create_supervisor
@@ -35,7 +36,10 @@ workflow = create_supervisor(
 )
 # Initialize the SQLite checkpointer. 
 # This automatically creates a 'trip_memory.sqlite' file in your project root.
-memory = SqliteSaver.from_conn_string("trip_memory.sqlite")
+# Create a persistent connection and pass it to the saver ---
+# check_same_thread=False allows Streamlit's multiple threads to share this connection
+conn = sqlite3.connect("trip_memory.sqlite", check_same_thread=False)
+memory = SqliteSaver(conn)
 # Compile with memory
 #memory = InMemorySaver()
 app = workflow.compile(checkpointer=memory)
