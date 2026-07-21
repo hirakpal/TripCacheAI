@@ -8,11 +8,11 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from backend.agents.hotel_agent import get_hotel_agent
 from backend.agents.context_agent import get_context_agent
 from backend.agents.itinerary_agent import get_itinerary_agent
-from typing_extensions import TypedDict
+
 from langgraph.graph import MessagesState
 
 # 1. Define the explicit state schema
-class TripState(TypedDict):
+class TripState(MessagesState):
     plan_status: str  # Tracks: "gathering", "pending_approval", "approved"
 
 from backend.agents.hotel_agent import get_hotel_agent
