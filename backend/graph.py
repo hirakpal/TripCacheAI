@@ -5,8 +5,9 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from backend.agents.hotel_agent import get_hotel_agent
 from backend.agents.context_agent import get_context_agent
+from backend.agents.itinerary_agent import get_itinerary_agent  # NEW IMPORT
 
-# Initialize the shared LLM
+# Initialize the shared LLM using Streamlit secrets
 model = ChatOpenAI(
     model="gpt-4o", 
     temperature=0, 
@@ -16,16 +17,18 @@ model = ChatOpenAI(
 # Instantiate the separate agents
 hotel_agent = get_hotel_agent(model)
 trip_context_agent = get_context_agent(model)
+itinerary_agent = get_itinerary_agent(model)  # NEW INSTANCE
 
 # Set up the supervisor workflow
 workflow = create_supervisor(
-    agents=[trip_context_agent, hotel_agent],
+    agents=[trip_context_agent, hotel_agent, itinerary_agent], # ADDED ITINERARY AGENT
     model=model,
     prompt=(
         "You are the supervisor of TripCacheAI, a travel planning team. "
-        "If the user's request is missing city, budget, or trip purpose, route to 'trip_context_expert'. "
-        "If the user has provided enough details to search, route to 'hotel_expert'. "
-        "Always produce a friendly, concise final response."
+        "1. If the user's request is missing basic info (city, budget, trip purpose), route to 'trip_context_expert'. "
+        "2. If the user is asking for accommodation or where to stay, route to 'hotel_expert'. "
+        "3. If the user asks for a schedule, day-by-day plan, or things to do, route to 'itinerary_expert'. "
+        "Always synthesize the final answer concisely and in a friendly tone."
     ),
     output_mode="last_message",
 )
