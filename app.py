@@ -27,10 +27,14 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # 4. Determine if we should show HITL Action Buttons
-# We only show them if the conversation is active and the AI just responded
 show_buttons = False
 if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "assistant":
-    show_buttons = True
+    last_message_text = st.session_state.messages[-1]["content"]
+    
+    # Heuristic: If the message ends with a question mark, the context agent is likely still gathering info.
+    # We only show buttons if it appears to be a finalized proposal (no trailing question mark).
+    if not last_message_text.strip().endswith("?"):
+        show_buttons = True
 
 # 5. Handle standard text input
 if user_input := st.chat_input("Where to? Or what would you like to change?"):
