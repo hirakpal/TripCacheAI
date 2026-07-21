@@ -9,6 +9,19 @@ from backend.agents.hotel_agent import get_hotel_agent
 from backend.agents.context_agent import get_context_agent
 from backend.agents.itinerary_agent import get_itinerary_agent
 
+from typing import Annotated
+from typing_extensions import TypedDict
+from langgraph.graph.message import add_messages
+
+# 1. Define the explicit state schema
+class TripState(TypedDict):
+    messages: Annotated[list, add_messages]
+    plan_status: str  # Tracks: "gathering", "pending_approval", "approved"
+
+from backend.agents.hotel_agent import get_hotel_agent
+from backend.agents.context_agent import get_context_agent
+from backend.agents.itinerary_agent import get_itinerary_agent
+
 # Initialize the shared LLM using Streamlit secrets
 model = ChatOpenAI(
     model="gpt-4o", 
@@ -32,6 +45,7 @@ workflow = create_supervisor(
         "3. If the user asks for a schedule, day-by-day plan, or things to do, route to 'itinerary_expert'. "
         "Always synthesize the final answer concisely and in a friendly tone."
     ),
+    state_schema=TripState,
     output_mode="last_message",
 )
 # Initialize the SQLite checkpointer. 
