@@ -10,16 +10,20 @@ if "thread_id" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# --- Define the reset callback function ---
+def reset_trip():
+    """Wipes the frontend chat and generates a new LangGraph thread ID."""
+    st.session_state.thread_id = str(uuid.uuid4())
+    st.session_state.messages = []
+    st.rerun()
+
 st.title("TripCacheAI ✈️")
 st.caption("Multi-Agent Travel Planner (Human-in-the-Loop)")
 
 # 2. Sidebar controls
 with st.sidebar:
     st.subheader("Session Controls")
-    if st.button("Start New Trip"):
-        st.session_state.thread_id = str(uuid.uuid4())
-        st.session_state.messages = []
-        st.rerun()
+    st.button("Start New Trip", on_click=reset_trip)
 
 # 3. Render existing chat history
 for msg in st.session_state.messages:
