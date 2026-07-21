@@ -22,7 +22,6 @@ with st.sidebar:
         st.success("New session started!")
 
 # Display chat history
-# Display chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
