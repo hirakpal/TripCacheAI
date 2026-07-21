@@ -9,13 +9,12 @@ from backend.agents.hotel_agent import get_hotel_agent
 from backend.agents.context_agent import get_context_agent
 from backend.agents.itinerary_agent import get_itinerary_agent
 
-from typing import Annotated
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
+from langgraph.graph import MessagesState
 
 # 1. Define the explicit state schema
 class TripState(TypedDict):
-    messages: Annotated[list, add_messages]
     plan_status: str  # Tracks: "gathering", "pending_approval", "approved"
 
 from backend.agents.hotel_agent import get_hotel_agent
