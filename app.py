@@ -121,7 +121,17 @@ with chat_col:
                 
         with col2:
             if st.button("🔄 Revise Plan"):
-                st.info("Please type the changes you'd like to make in the chat box below!")
+                # 1. Explicitly transition the state back to gathering
+                trip_agent.update_state(config, {"plan_status": "gathering"})
+                
+                # 2. Add a friendly prompt to the chat history
+                st.session_state.messages.append({
+                    "role": "assistant", 
+                    "content": "No problem! What would you like to change about this itinerary? (e.g., 'Swap day 2 for a beach day', or 'Find a cheaper hotel')"
+                })
+                
+                # 3. Refresh the UI to hide the buttons and show the new message
+                st.rerun()
 
 
 # ==========================================
