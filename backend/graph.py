@@ -14,6 +14,7 @@ from langgraph.graph import MessagesState
 # 1. Define the explicit state schema
 class TripState(MessagesState):
     plan_status: str  # Tracks: "gathering", "pending_approval", "approved"
+    remaining_steps: int # Required by LangGraph to prevent infinite loops
 
 from backend.agents.hotel_agent import get_hotel_agent
 from backend.agents.context_agent import get_context_agent
