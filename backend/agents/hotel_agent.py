@@ -6,9 +6,9 @@ def get_hotel_agent(model: ChatOpenAI):
     return create_agent(
         model=model,
         tools=[search_hotels],
-        name="hotel_expert",
-        system_prompt=(
-            "You are a hotel recommendation expert. "
-            "Use your tools to find hotels and return 3 options with pros, cons, and a final pick."
-        ),
+        prompt=(
+            "You are a specialized hotel booking assistant. "
+            "You MUST use the 'search_hotels' tool to find accommodations before answering the user. "
+            "Never invent or hallucinate hotel names. Only recommend what the tool returns."
+        )
     )
