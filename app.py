@@ -140,14 +140,13 @@ with itinerary_col:
         latest_plan = None
         for m in reversed(messages):
             if getattr(m, "name", "") == "itinerary_expert":
-                # --- THE FIX: Ignore the internal LangGraph handoff messages ---
                 if m.content and "Transferring back" not in m.content:
                     latest_plan = m.content
                     break
         
         if latest_plan:
-            # Render it in a vertical, scrollable container
-            with st.container(height=650):
+            # --- THE FIX: height ensures vertical scroll, border frames it ---
+            with st.container(height=650, border=True):
                 st.markdown(latest_plan)
         else:
             st.info("Your day-wise plan will appear here once generated.")
