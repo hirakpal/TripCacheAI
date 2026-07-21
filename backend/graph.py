@@ -60,9 +60,9 @@ from backend.agents.itinerary_agent import get_itinerary_agent
 # # (Comment out your ChatOpenAI model and use this instead)
 # model = SafeMockLLM(responses=mock_sequence)
 
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 
-# A dynamic, free, local LLM that actually executes the routing logic
+# Initialize the model exactly as before
 model = ChatOllama(model="llama3.1", temperature=0)
 
 # Initialize the shared LLM using Streamlit secrets
