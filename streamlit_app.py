@@ -1,45 +1,52 @@
 import streamlit as st
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.store.memory import InMemoryStore
-from your_module import app  # import your compiled LangGraph workflow
+import uuid
+from backend.graph import app as trip_agent
 
-st.set_page_config(page_title="TravelWeaver Prototype", layout="wide")
+st.set_page_config(page_title="TripCacheAI", layout="centered")
 
+# Initialize session state for memory and thread ID
 if "thread_id" not in st.session_state:
-    st.session_state.thread_id = "thread-001"
+    st.session_state.thread_id = str(uuid.uuid4())
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-st.title("TravelWeaver – Multi-Agent Travel Planner (Prototype)")
+st.title("TripCacheAI ✈️")
+st.caption("Multi-Agent Travel Planner Prototype")
 
+# Sidebar controls
 with st.sidebar:
-    st.subheader("Session controls")
-    new_thread = st.button("New trip session")
-    if new_thread:
-        st.session_state.thread_id = f"thread-{st.session_state.thread_id.split('-')[-1]}-new"
+    st.subheader("Session Controls")
+    if st.button("Start New Trip"):
+        st.session_state.thread_id = str(uuid.uuid4())
         st.session_state.messages = []
-        st.success("Started a new trip session.")
+        st.success("New session started!")
 
-st.write("Chat with the front desk agent. The supervisor will call hotel and planner/validator agents as needed.")
-
+# Display chat history
 for msg in st.session_state.messages:
-    if msg["role"] == "user":
-        st.chat_message("user").markdown(msg["content"])
-    else:
-        st.chat_message("assistant").markdown(msg["content"])
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-user_input = st.chat_input("Describe your trip (destination, days, budget)...")
-
-if user_input:
+# Chat input
+if user_input := st.chat_input("Where are you planning to go?"):
+    # Add user message to UI state
     st.session_state.messages.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
 
-    config = {
-        "configurable": {
-            "thread_id": st.session_state.thread_id,
-        }
-    }
+    # Prepare configuration for LangGraph (this ties the turn to the specific thread_id)
+    config = {"configurable": {"thread_id": st.session_state.thread_id}}
 
-    result = app.invoke({"messages": st.session_state.messages}, config=config)
-    st.session_state.messages = result["messages"]
-
-    st.chat_message("assistant").markdown(result["messages"][-1]["content"])
+    with st.chat_message("assistant"):
+        with st.spinner("TripCacheAI is thinking..."):
+            # We only need to pass the newest message; LangGraph's checkpointer handles history
+            inputs = {"messages": [("user", user_input)]}
+            
+            # Invoke the graph
+            result = trip_agent.invoke(inputs, config=config)
+            
+            # Extract the final assistant message
+            final_message = result["messages"][-1].content
+            st.markdown(final_message)
+            
+            # Save assistant message to UI state
+            st.session_state.messages.append({"role": "assistant", "content": final_message})
