@@ -1,89 +1,71 @@
 import sqlite3
 import streamlit as st
-from langchain_openai import ChatOpenAI
-from langgraph_supervisor import create_supervisor
-#from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.checkpoint.sqlite import SqliteSaver
-
-from backend.agents.hotel_agent import get_hotel_agent
-from backend.agents.context_agent import get_context_agent
-from backend.agents.itinerary_agent import get_itinerary_agent
-
+from typing import Annotated
+from langchain_core.messages import BaseMessage, trim_messages
+from langgraph.graph.message import add_messages
 from langgraph.graph import MessagesState
-
-# 1. Define the explicit state schema
-class TripState(MessagesState):
-    plan_status: str  # Tracks: "gathering", "pending_approval", "approved"
-    remaining_steps: int # Required by LangGraph to prevent infinite loops
+from langgraph_supervisor import create_supervisor
+from langgraph.checkpoint.sqlite import SqliteSaver
+from langchain_groq import ChatGroq
 
 from backend.agents.hotel_agent import get_hotel_agent
 from backend.agents.context_agent import get_context_agent
 from backend.agents.itinerary_agent import get_itinerary_agent
 
-# # --- NEW IMPORTS FOR MOCK LLM ---
-# from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
-# from langchain_core.messages import AIMessage
+# ==========================================
+# 1. THE TOKEN MANAGEMENT REDUCER
+# ==========================================
+def token_trimming_reducer(left: list[BaseMessage], right: list[BaseMessage]) -> list[BaseMessage]:
+    """Intercepts new messages and trims history to prevent API rate limits."""
+    # Add new messages to the history using the standard method
+    combined = add_messages(left, right)
+    
+    # Trim the conversation down to a safe limit for the 8B model (~1500 tokens)
+    return trim_messages(
+        combined,
+        max_tokens=1500, 
+        strategy="last",
+        token_counter=lambda msgs: sum(len(str(m.content)) // 4 for m in msgs),
+        include_system=True,
+        start_on="human",
+        allow_partial=False
+    )
 
-# # 1. Create a custom wrapper to safely handle LangGraph's tool binding
-# class SafeMockLLM(FakeMessagesListChatModel):
-#     def bind_tools(self, *args, **kwargs):
-#         """
-#         Intercepts LangGraph's attempt to bind the 'route' tool to the LLM.
-#         Returns the LLM itself to prevent NotImplemented errors.
-#         """
-#         return self
+# ==========================================
+# 2. THE OPTIMIZED STATE SCHEMA
+# ==========================================
+class TripState(MessagesState):
+    # Override the default 'messages' behavior from MessagesState
+    # to use our custom trimmer instead of the default add_messages
+    messages: Annotated[list[BaseMessage], token_trimming_reducer]
+    plan_status: str  
+    remaining_steps: int 
 
-# # 2. Define the exact, strict sequence of events for a single user turn
-# mock_sequence = [
-#     # Turn 1: Supervisor decides to route to the planner
-#     AIMessage(
-#         content="", 
-#         tool_calls=[{"name": "route", "args": {"next": "itinerary_expert"}, "id": "mock_call_1"}]
-#     ),
-#     # Turn 2: The planner generates the day-by-day plan
-#     AIMessage(
-#         content=(
-#             "Here is your mock itinerary:\n\n"
-#             "Day 1: Historical Tour\n"
-#             "Morning: Visit the Red Fort\n\n"
-#             "Day 2: Local Cuisine\n"
-#             "Morning: Paranthe Wali Gali"
-#         )
-#     ),
-#     # Turn 3: The supervisor synthesizes the final response for the user
-#     AIMessage(
-#         content="I have generated a 2-day mock itinerary for you! Let me know if you want to revise it."
-#     )
-# ]
-
-# # 3. Initialize the mock model
-# # (Comment out your ChatOpenAI model and use this instead)
-# model = SafeMockLLM(responses=mock_sequence)
-
-from langchain_groq import ChatGroq
-import streamlit as st
-
-# Initialize the Groq model properly for LangGraph
+# ==========================================
+# 3. INITIALIZE GROQ LLM
+# ==========================================
 model = ChatGroq(
-    model="llama-3.1-8b-instant", # A valid, incredibly fast Groq model
-    temperature=0, # Keep it at 0 so the supervisor routes predictably
-    max_retries=10,
+    model="llama-3.1-8b-instant", # The highly available, fast Meta model
+    temperature=0, 
+    max_retries=10, # Auto-recovers from any rogue 429 rate limit errors
     api_key=st.secrets["GROQ_API_KEY"]
 )
-
 # Initialize the shared LLM using Streamlit secrets
 # model = ChatOpenAI(
 #     model="gpt-4o", 
 #     temperature=0, 
 #     api_key=st.secrets["OPENAI_API_KEY"]
 # )
-
-# Instantiate the separate agents
+# ==========================================
+# 4. INSTANTIATE AGENTS
+# ==========================================
 hotel_agent = get_hotel_agent(model)
 trip_context_agent = get_context_agent(model)
-itinerary_agent = get_itinerary_agent(model)  # NEW INSTANCE
+itinerary_agent = get_itinerary_agent(model) 
 
-# Set up the supervisor workflow
+# ==========================================
+# 5. SUPERVISOR WORKFLOW
+# ==========================================
 workflow = create_supervisor(
     agents=[trip_context_agent, hotel_agent, itinerary_agent],
     model=model,
@@ -91,18 +73,19 @@ workflow = create_supervisor(
         "You are the supervisor of TripCacheAI, a travel planning team. "
         "1. If the user's request is missing basic info, route to 'trip_context_expert'. "
         "2. If the user asks for accommodation, route to 'hotel_expert'. "
-        "3. If the user asks for a schedule, things to do, OR wants to modify/revise an existing plan, ALWAYS route to 'itinerary_expert'. " # <-- THE FIX
+        "3. If the user asks for a schedule, things to do, OR wants to modify/revise an existing plan, ALWAYS route to 'itinerary_expert'. "
         "Always synthesize the final answer concisely and in a friendly tone."
     ),
     state_schema=TripState,
     output_mode="last_message",
 )
-# Initialize the SQLite checkpointer. 
-# This automatically creates a 'trip_memory.sqlite' file in your project root.
-# Create a persistent connection and pass it to the saver ---
+
+# ==========================================
+# 6. MEMORY CHECKPOINTER & COMPILATION
+# ==========================================
 # check_same_thread=False allows Streamlit's multiple threads to share this connection
 conn = sqlite3.connect("trip_memory.sqlite", check_same_thread=False)
-memory = SqliteSaver(conn)
 # Compile with memory
 #memory = InMemorySaver()
+memory = SqliteSaver(conn)
 app = workflow.compile(checkpointer=memory)
