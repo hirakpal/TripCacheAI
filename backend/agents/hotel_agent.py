@@ -14,6 +14,7 @@ def get_hotel_agent(model):
             "CRITICAL: The 'search_hotels' tool requires 4 mandatory inputs: location, budget, check-in date, and check-out date. "
             "If the user has not provided ALL 4 of these details in the conversation, you MUST ask the user for the missing information before calling the tool. "
             "Never invent or hallucinate hotel names or availability. Only recommend what the tool returns."
+            "STRICT RULE: Do not attempt to use any tools to transfer the user, route the conversation, or hand back control to the supervisor. You are strictly a text-generator. Simply provide your hotel recommendations and stop."
         )
     )
 
