@@ -201,35 +201,48 @@ with itinerary_col:
         
         if latest_plan:
             with st.container(height=650, border=True):
-                # Split text right before any line starting with "Day X"
-                chunks = re.split(r'(?im)^(?=#{0,4}\s*\*?Day\s*\d+)', latest_plan)
+                
+                # --- UPDATED: Bulletproof Tab Parsing Logic ---
+                # 1. More robust regex that handles markdown bold (**Day 1**) or headers (### Day 1)
+                split_regex = r'(?im)^(?=\s*(?:#{1,6}\s*)?(?:\*\*\s*)?Day\s*\d+)'
+                chunks = re.split(split_regex, latest_plan)
                 chunks = [c.strip() for c in chunks if c.strip()]
                 
                 intro_text = ""
                 day_chunks = []
                 
-                # Categorize chunks into Intro vs Actual Days
+                # 2. Categorize chunks
                 for chunk in chunks:
-                    if re.search(r'(?i)^#{0,4}\s*\*?Day\s*\d+', chunk):
+                    if re.search(r'(?i)^\s*(?:#{1,6}\s*)?(?:\*\*\s*)?Day\s*\d+', chunk):
                         day_chunks.append(chunk)
                     else:
                         intro_text += chunk + "\n\n"
                         
-                # Render Day Tabs if multiple days found
-                if len(day_chunks) > 1:
-                    if intro_text:
+                # 3. FIX for the LLM hallucination (Forgot to write "Day 1")
+                # If we have "Day 2" but the intro text contains schedule details, wrap intro as Day 1.
+                if len(day_chunks) > 0:
+                    if intro_text and re.search(r'(?i)(morning|afternoon|evening)', intro_text):
+                        day_chunks.insert(0, f"**Day 1**\n\n{intro_text}")
+                        intro_text = "" # Clear intro so it doesn't double-render
+                        
+                    # Render any remaining intro text (like "Here is your trip to Delhi!")
+                    if intro_text.strip():
                         st.markdown(intro_text)
                         
+                    # 4. Extract tab names safely
                     tab_names = []
                     for d in day_chunks:
                         match = re.search(r'(?i)Day\s*\d+', d)
                         tab_names.append(match.group(0).title() if match else "Day")
                         
-                    tabs = st.tabs(tab_names)
-                    for i, tab in enumerate(tabs):
-                        with tab:
-                            st.markdown(day_chunks[i])
+                    # 5. Build Streamlit Tabs
+                    if len(tab_names) > 0:
+                        tabs = st.tabs(tab_names)
+                        for i, tab in enumerate(tabs):
+                            with tab:
+                                st.markdown(day_chunks[i])
                 else:
+                    # Fallback if no days are detected at all
                     st.markdown(latest_plan)
         else:
             st.info("Your day-wise plan will appear here once generated.")
