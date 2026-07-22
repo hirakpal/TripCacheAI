@@ -75,6 +75,7 @@ workflow = create_supervisor(
         "2. If the user asks for accommodation, route to 'hotel_expert'. "
         "3. If the user asks for a schedule, things to do, OR wants to modify/revise an existing plan, ALWAYS route to 'itinerary_expert'. "
         "Always synthesize the final answer concisely and in a friendly tone."
+        "Do not just answer in chat when an expert is needed; actively route the task to the correct agent."
     ),
     state_schema=TripState,
     output_mode="last_message",
