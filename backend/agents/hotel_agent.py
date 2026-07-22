@@ -1,7 +1,7 @@
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 #from backend.tools.hotel_tools import search_hotels
-from backend.tools import search_hotels
+from backend.mock_tools import search_hotels
 
 def get_hotel_agent(model):
     return create_agent(
