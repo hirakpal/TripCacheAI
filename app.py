@@ -23,7 +23,9 @@ st.markdown("""
 # --- 2. Callbacks & Helper Functions ---
 def reset_trip():
     """Wipes the frontend chat, resets token stats, and generates a new thread ID."""
+    # 1. Generate a brand new LangGraph Thread ID (Clears Backend Memory)
     st.session_state.thread_id = str(uuid.uuid4())
+    # 2. Empty the UI chat bubbles (Clears Frontend Memory)
     st.session_state.messages = []
     st.session_state.actual_spent = 0
     st.session_state.baseline_spent = 0
