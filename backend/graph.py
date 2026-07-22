@@ -67,6 +67,7 @@ import streamlit as st
 model = ChatGroq(
     model="llama-3.3-70b-versatile", # A valid, incredibly fast Groq model
     temperature=0, # Keep it at 0 so the supervisor routes predictably
+    max_retries=10,
     api_key=st.secrets["GROQ_API_KEY"]
 )
 
