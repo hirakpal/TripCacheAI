@@ -1,7 +1,7 @@
 import sqlite3
 import streamlit as st
 from typing import Annotated
-from langchain_core.messages import BaseMessage, trim_messages
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, trim_messages
 from langgraph.graph.message import add_messages
 from langgraph.graph import MessagesState
 from langgraph_supervisor import create_supervisor
@@ -13,14 +13,55 @@ from backend.agents.context_agent import get_context_agent
 from backend.agents.itinerary_agent import get_itinerary_agent
 
 # ==========================================
-# 1. THE TOKEN MANAGEMENT REDUCER
+# 1. ADVANCED SUMMARIZATION & TRIMMING REDUCER
 # ==========================================
 def token_trimming_reducer(left: list[BaseMessage], right: list[BaseMessage]) -> list[BaseMessage]:
-    """Intercepts new messages and trims history to prevent API rate limits."""
-    # Add new messages to the history using the standard method
+    """
+    Combines messages, strips heavy metadata, and summarizes long threads 
+    to maximize token savings and prevent Groq rate limits.
+    """
     combined = add_messages(left, right)
     
-    # Trim the conversation down to a safe limit for the 8B model (~1500 tokens)
+    # Strip unnecessary heavy metadata to save hidden context overhead
+    for msg in combined:
+        if hasattr(msg, "response_metadata"):
+            msg.response_metadata = {}
+            
+    # If the thread gets long (e.g., more than 12 messages), summarize the older context
+    if len(combined) > 12:
+        # Keep the system prompt / first message, summarize the middle, and keep the last 4 messages raw
+        older_messages = combined[1:-4]
+        recent_messages = combined[-4:]
+        
+        # Build a quick text block to summarize
+        conversation_text = "\n".join([f"{m.type}: {m.content}" for m in older_messages if m.content])
+        
+        # Lightweight prompt to create a running summary
+        summary_prompt = (
+            "Summarize the key facts, preferences, dates, budgets, and decisions made in this travel planning conversation "
+            "into a single concise paragraph. Keep all critical constraints:\n\n" + conversation_text
+        )
+        
+        try:
+            # We initialize a quick lightweight call or use the main model to generate the summary
+            summary_model = ChatGroq(
+                model="llama-3.1-8b-instant", 
+                temperature=0, 
+                api_key=st.secrets["GROQ_API_KEY"]
+            )
+            summary_response = summary_model.invoke([HumanMessage(content=summary_prompt)])
+            
+            # Create a compressed history block: [First Message/System] + [Summary Message] + [Recent Turns]
+            compressed_history = [
+                combined[0],
+                SystemMessage(content=f"[Running Conversation Summary]: {summary_response.content}")
+            ] + recent_messages
+            
+            combined = compressed_history
+        except Exception:
+            pass # Fallback to standard trimming if summary API call fails
+            
+    # Final strict token budget cap using trim_messages
     return trim_messages(
         combined,
         max_tokens=1500, 
