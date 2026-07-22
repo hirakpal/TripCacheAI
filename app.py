@@ -31,21 +31,26 @@ def reset_trip():
     st.session_state.baseline_spent = 0
 
 def record_token_usage(result_messages):
-    """Calculates actual Groq token expenditure vs. un-trimmed baseline."""
+    """Calculates token savings by estimating the full context weight vs actual."""
     if not result_messages:
         return
         
     last_msg = result_messages[-1]
     if hasattr(last_msg, "response_metadata"):
-        # Actual tokens billed by Groq for this model invocation
-        turn_spent = last_msg.response_metadata.get("token_usage", {}).get("total_tokens", 0)
+        # Get just the input (prompt) tokens billed by Groq
+        turn_spent = last_msg.response_metadata.get("token_usage", {}).get("prompt_tokens", 0)
         
-        # Estimate baseline tokens if full untrimmed UI history was sent
+        # Estimate baseline: UI chat history + roughly 1000 tokens for system prompts/tools
         ui_chat_chars = sum(len(str(m["content"])) for m in st.session_state.messages)
-        turn_baseline = ui_chat_chars // 4
+        turn_baseline = (ui_chat_chars // 4) + 1000 
         
         st.session_state.actual_spent += turn_spent
-        st.session_state.baseline_spent += max(turn_spent, turn_baseline)
+        
+        # Only record savings if the baseline exceeds what Groq actually charged
+        if turn_baseline > turn_spent:
+            st.session_state.baseline_spent += turn_baseline
+        else:
+            st.session_state.baseline_spent += turn_spent
 
 # --- 3. Initialize Session State ---
 if "thread_id" not in st.session_state:
