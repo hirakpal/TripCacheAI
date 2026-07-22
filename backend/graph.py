@@ -60,10 +60,15 @@ from backend.agents.itinerary_agent import get_itinerary_agent
 # # (Comment out your ChatOpenAI model and use this instead)
 # model = SafeMockLLM(responses=mock_sequence)
 
-from langchain_ollama import ChatOllama
+from langchain_groq import ChatGroq
+import streamlit as st
 
-# Initialize the model exactly as before
-model = ChatOllama(model="llama3.1", temperature=0)
+# Initialize the Groq model properly for LangGraph
+model = ChatGroq(
+    model="llama-3.1-70b-versatile", # A valid, incredibly fast Groq model
+    temperature=0, # Keep it at 0 so the supervisor routes predictably
+    api_key=st.secrets["GROQ_API_KEY"]
+)
 
 # Initialize the shared LLM using Streamlit secrets
 # model = ChatOpenAI(
