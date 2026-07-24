@@ -62,5 +62,5 @@ You MUST populate the AgentResponse fields as follows:
         messages = [SystemMessage(content=system_prompt)] + state["messages"]
         response: AgentResponse = structured_model.invoke(messages)
         return response
-
+    invoke_agent.name = "hotel_expert"
     return invoke_agent
