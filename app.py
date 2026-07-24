@@ -29,8 +29,7 @@ def reset_trip():
     st.session_state.actual_spent = 0
     st.session_state.baseline_spent = 0
     st.session_state.daily_limit_exceeded = False
-
-
+    st.session_state.rate_limit_details = {"used": 0, "limit": 100000, "requested": 0}
 
 def parse_rate_limit_error(error_msg: str):
     """Extracts actual used, limit, and requested token counts from Groq 429 error messages."""
@@ -123,6 +122,8 @@ if "baseline_spent" not in st.session_state:
     st.session_state.baseline_spent = 0
 if "daily_limit_exceeded" not in st.session_state:
     st.session_state.daily_limit_exceeded = False
+if "rate_limit_details" not in st.session_state:
+    st.session_state.rate_limit_details = {"used": 0, "limit": 100000, "requested": 0}
 
 # --- 4. Sidebar Controls & Token Analytics ---
 with st.sidebar:
@@ -164,14 +165,14 @@ with st.sidebar:
 
     # Dynamic Alert Box for Token Quota / Rate Limit Breaches
     if st.session_state.get("daily_limit_exceeded", False):
-    err_data = st.session_state.get("rate_limit_details", {"used": 0, "limit": 100000, "requested": 0})
-    
-    st.error("⚠️ **Daily Token Cap Reached!**")
-    st.caption(
-        f"Used **{err_data['used']:,} / {err_data['limit']:,}** daily tokens. "
-        f"Your last request ({err_data['requested']:,} tokens) breached the cap. "
-        "Please select a different model above to continue."
-    )
+        err_data = st.session_state.get("rate_limit_details", {"used": 0, "limit": 100000, "requested": 0})
+        
+        st.error("⚠️ **Daily Token Cap Reached!**")
+        st.caption(
+            f"Used **{err_data['used']:,} / {err_data['limit']:,}** daily tokens. "
+            f"Your last request ({err_data['requested']:,} tokens) breached the cap. "
+            "Please select a different model above to continue."
+        )
 
     st.markdown("---")
     
@@ -241,6 +242,7 @@ with chat_col:
                         with st.chat_message("assistant"):
                             status_placeholder = st.status("TripCacheAI is thinking...", expanded=True)
                             inputs = {"messages": [("user", suggestion)]}
+                            was_error = False
                             
                             try:
                                 result = trip_agent.invoke(inputs, config=config)
@@ -248,15 +250,18 @@ with chat_col:
                                 st.session_state.daily_limit_exceeded = False
                                 status_placeholder.update(label="Response ready!", state="complete", expanded=False)
                             except Exception as e:
+                                was_error = True
                                 error_str = str(e)
                                 if "429" in error_str or "rate_limit" in error_str or "tokens" in error_str:
                                     st.session_state.daily_limit_exceeded = True
-                                final_content = f"API Rate Limited or Quota Exceeded. Please switch models in the sidebar."
+                                    st.session_state.rate_limit_details = parse_rate_limit_error(error_str)
+                                final_content = "API Rate Limited or Quota Exceeded. Please switch models in the sidebar."
                                 status_placeholder.update(label="Rate Limit / Quota Exceeded", state="error", expanded=True)
                                 st.warning("Quota reached on selected model. Please switch to another model in the sidebar.")
                                 
                             render_hotel_card(final_content, card_index=999)
-                            record_token_usage(result.get("messages", []) if 'result' in locals() else [])
+                            if not was_error:
+                                record_token_usage(result.get("messages", []) if 'result' in locals() else [])
                             
                         st.session_state.messages.append({"role": "assistant", "content": final_content})
                         st.rerun()
@@ -274,6 +279,7 @@ with chat_col:
             
             inputs = {"messages": [("user", user_input)]}
             final_message_content = ""
+            was_error = False
             
             try:
                 log_event("info", "ROUTER", f"Processing user input with {st.session_state.selected_model}: {user_input}")
@@ -281,7 +287,7 @@ with chat_col:
                     for node_name, node_output in event.items():
                         if node_name != "__end__":
                             status_placeholder.update(label=f"Active Agent: **{node_name}** processing...", state="running")
-                            log_event("info", "GRAPH_NODE", f"Node executed successfully", f"Node: {node_name}")
+                            log_event("info", "GRAPH_NODE", "Node executed successfully", f"Node: {node_name}")
                             
                             if "messages" in node_output and node_output["messages"]:
                                 latest_msg = node_output["messages"][-1]
@@ -294,13 +300,14 @@ with chat_col:
                 st.session_state.daily_limit_exceeded = False
                 
             except Exception as e:
+                was_error = True
                 error_msg = str(e)
                 log_event("error", "CRASH", "Graph execution failed or rate limited", error_msg)
-    
+                
                 if "429" in error_msg or "rate_limit" in error_msg or "tokens" in error_msg:
                     st.session_state.daily_limit_exceeded = True
                     st.session_state.rate_limit_details = parse_rate_limit_error(error_msg)
-    
+                
                 status_placeholder.update(label="API Quota / Rate Limit Breached", state="error", expanded=True)
                 st.warning(f"System Notice: Daily token limit or rate limit reached on model `{st.session_state.selected_model}`. Please switch models in the sidebar.")
                 final_message_content = "Daily token cap or rate limit reached. Please switch models in the left sidebar to continue."
@@ -317,7 +324,7 @@ with chat_col:
             current_state = trip_agent.get_state(config)
             if current_state and current_state.values:
                 all_msgs = current_state.values.get("messages", [])
-                record_token_usage(all_msgs)
+                record_token_usage(all_msgs, was_error=was_error)
                 
                 plan_generated = any(getattr(m, "name", "") == "itinerary_expert" for m in all_msgs[-3:])
                 if plan_generated:
@@ -355,8 +362,10 @@ with chat_col:
                         res_content = result["messages"][-1].content
                         st.session_state.daily_limit_exceeded = False
                     except Exception as e:
-                        if "429" in str(e) or "rate_limit" in str(e) or "tokens" in str(e):
+                        err_str = str(e)
+                        if "429" in err_str or "rate_limit" in err_str or "tokens" in err_str:
                             st.session_state.daily_limit_exceeded = True
+                            st.session_state.rate_limit_details = parse_rate_limit_error(err_str)
                         res_content = "Rate limit or quota reached. Switch models in the sidebar."
                     
                     st.session_state.messages.append({
