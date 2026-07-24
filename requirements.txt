@@ -8,3 +8,7 @@ streamlit
 requests
 langchain-ollama
 langchain-groq
+langchain-google-genai
+langchain-openai
+langchain-anthropic
+langchain-groq
