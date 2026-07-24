@@ -83,55 +83,6 @@ def render_hotel_card(content: str, card_index: int = 0):
     else:
         st.markdown(content)
 
-def extract_trip_constraints(messages: list) -> dict:
-    """Parses existing conversation history to see what slots are already provided."""
-    full_text = " ".join([str(getattr(m, "content", "")) for m in messages]).lower()
-    
-    has_destination = any(w in full_text for w in ["kolkata", "delhi", "mumbai", "goa", "trip to", "visit"])
-    has_dates = any(w in full_text for w in ["weekend", "jul", "aug", "sept", "oct", "days", "dates", "month"])
-    has_budget = any(w in full_text for w in ["inr", "budget", "k", "rupees", "cost", "tier", "50,000", "25,000", "30k"])
-    has_travelers = any(w in full_text for w in ["solo", "couple", "family", "guests", "people", "travelers", "2", "3", "4", "5"])
-    has_arrival = any(w in full_text for w in ["airport", "station", "howrah", "sealdah", "ccu", "terminal", "arriving at", "flight", "train"])
-    
-    return {
-        "has_destination": has_destination,
-        "has_dates": has_dates,
-        "has_budget": has_budget,
-        "has_travelers": has_travelers,
-        "has_arrival": has_arrival
-    }
-
-def get_ai_suggestions(current_status, last_assistant_message, latest_agent_name, messages=None):
-    """Dynamically generates contextual AI suggestion chips based on active agent and message content."""
-    msg_lower = last_assistant_message.lower()
-    constraints = extract_trip_constraints(messages or [])
-
-    # PHASE 1: Data Gathering Phase
-    if current_status == "gathering" and latest_agent_name != "itinerary_expert":
-        if not constraints["has_dates"] or "date" in msg_lower or "when" in msg_lower:
-            return ["This weekend (3 days)", "5 days next month", "3 days next week"]
-            
-        if not constraints["has_budget"] or "budget" in msg_lower:
-            return ["25,000 INR (Budget)", "50,000 INR (Comfort)", "100,000 INR (Luxury)"]
-            
-        if not constraints["has_travelers"] or "traveler" in msg_lower or "people" in msg_lower:
-            return ["Solo traveler", "2 Guests (Couple)", "Family of 4"]
-
-        if not constraints["has_arrival"] or "arrival" in msg_lower or "station" in msg_lower or "airport" in msg_lower:
-            return ["Arriving at Airport (CCU)", "Arriving at Howrah Station", "Arriving at Sealdah Station"]
-
-        return ["Plan itinerary", "Suggest best areas to stay", "Recommend local food"]
-
-    # PHASE 2: Hotel Recommendations
-    elif latest_agent_name == "hotel_agent" or "hotel" in msg_lower or "stay" in msg_lower:
-        return ["Find hotels near central area", "Show budget options", "Hotels near my arrival point"]
-
-    # PHASE 3: Itinerary Generated (Single, non-duplicated block)
-    elif current_status == "pending_approval" or latest_agent_name == "itinerary_expert":
-        return ["Suggest hotels near sights", "Add more historical sites", "Swap a day for shopping"]
-
-    return ["Show me hotels", "Suggest local restaurants", "Transport options"]
-
 # --- 3. Initialize Session State ---
 if "thread_id" not in st.session_state:
     st.session_state.thread_id = str(uuid.uuid4())
@@ -207,6 +158,23 @@ with st.sidebar:
             "Please select a different model above to continue."
         )
 
+    # --- Live Traveler Profile Display ---
+    st.markdown("---")
+    st.subheader("👤 Traveler Profile")
+    
+    trip_agent = get_compiled_graph(st.session_state.selected_model)
+    config = {"configurable": {"thread_id": st.session_state.thread_id}}
+    current_state = trip_agent.get_state(config)
+    
+    if current_state and current_state.values:
+        profile = current_state.values.get("traveler_profile", {})
+        if profile:
+            for k, v in profile.items():
+                if v:
+                    st.write(f"**{k.title().replace('_', ' ')}:** {v}")
+        else:
+            st.caption("Gathering profile details...")
+
     st.markdown("---")
     
     @st.fragment
@@ -255,22 +223,17 @@ with chat_col:
             else:
                 st.markdown(msg["content"])
 
-    # --- Contextual AI Suggestion Chips ---
-    if st.session_state.messages:
-        config = {"configurable": {"thread_id": st.session_state.thread_id}}
-        current_state = trip_agent.get_state(config)
-        current_status = current_state.values.get("plan_status", "gathering") if current_state.values else "gathering"
-        
-        messages = current_state.values.get("messages", []) if current_state.values else []
-        latest_agent_name = getattr(messages[-1], "name", "") if messages else ""
-        last_msg_text = st.session_state.messages[-1]["content"] if st.session_state.messages else ""
-        
-        suggestions = get_ai_suggestions(current_status, last_msg_text, latest_agent_name, messages=messages)
+    # --- Contextual AI Suggestion Chips (Loaded directly from Graph State) ---
+    config = {"configurable": {"thread_id": st.session_state.thread_id}}
+    current_state = trip_agent.get_state(config)
+    
+    if current_state and current_state.values:
+        suggestions = current_state.values.get("suggestion_chips", [])
 
         if suggestions:
             st.markdown("<small style='color: gray;'>💡 **Suggested Actions:**</small>", unsafe_allow_html=True)
-            cols = st.columns(len(suggestions))
-            for idx, suggestion in enumerate(suggestions):
+            cols = st.columns(min(len(suggestions), 4))
+            for idx, suggestion in enumerate(suggestions[:4]):
                 with cols[idx]:
                     if st.button(suggestion, key=f"sug_{idx}_{hash(suggestion)}", use_container_width=True):
                         st.session_state.messages.append({"role": "user", "content": suggestion})
