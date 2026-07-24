@@ -55,18 +55,18 @@ def record_token_usage(result_messages):
     else:
         st.session_state.baseline_spent += turn_spent
 
-def render_hotel_card(content: str):
-    """Parses hotel recommendations and renders them as sleek inline UI cards."""
+def render_hotel_card(content: str, card_index: int = 0):
+    """Parses hotel recommendations and renders them as sleek inline UI cards with unique keys."""
     if "Hotel Name:" in content or "The Lalit" in content or "The Imperial" in content:
         st.markdown("### 🏨 Hotel Recommendation")
         with st.container(border=True):
             st.markdown(content)
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("✅ Book This Hotel", key=f"book_{hash(content)}"):
+                if st.button("✅ Book This Hotel", key=f"book_hotel_{card_index}_{hash(content)}"):
                     st.success("Hotel selected and locked into your trip plan!")
             with col2:
-                if st.button("🔄 Show Alternatives", key=f"alt_{hash(content)}"):
+                if st.button("🔄 Show Alternatives", key=f"alt_hotel_{card_index}_{hash(content)}"):
                     st.session_state.messages.append({"role": "user", "content": "Can you show me more alternative hotels?"})
                     st.rerun()
     else:
@@ -132,38 +132,15 @@ with st.sidebar:
     st.caption("Context Trimming Efficiency")
     st.progress(min(1.0, perc_saved / 100))
 
-with st.sidebar:
-    st.subheader("🛠️ Session Controls")
-    st.button("🔄 Start New Trip", on_click=reset_trip, use_container_width=True)
-    
-    st.markdown("---")
-    st.subheader("⚡ Token Optimization")
-    
-    spent = st.session_state.actual_spent
-    baseline = st.session_state.baseline_spent
-    saved = max(0, baseline - spent)
-    perc_saved = (saved / baseline * 100) if baseline > 0 else 0.0
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric(label="Spent", value=f"{spent:,}")
-    with col2:
-        st.metric(label="Saved", value=f"{saved:,}", delta=f"{perc_saved:.1f}%")
-        
-    st.caption("Context Trimming Efficiency")
-    st.progress(min(1.0, perc_saved / 100))
-
-with st.sidebar:
     st.markdown("---")
     
-    # Wrap the audit logs in a fragment so refreshing logs NEVER resets your main chat or trip session
+    # Wrap audit logs in a fragment so refreshing logs never resets main chat session
     @st.fragment
     def render_audit_logs_fragment():
         with st.expander("🛠️ System Audit Logs", expanded=False):
             col_ref, col_dl = st.columns(2)
             with col_ref:
-                if st.button("Refresh Logs"):
-                    # Fragment-scoped rerun only updates this block, leaving the chat intact
+                if st.button("Refresh Logs", key="refresh_audit_logs_btn"):
                     st.rerun(scope="fragment")
             with col_dl:
                 all_logs = get_recent_logs(100)
@@ -173,11 +150,12 @@ with st.sidebar:
                     data=log_text,
                     file_name="tripcache_audit_logs.txt",
                     mime="text/plain",
-                    use_container_width=True
+                    use_container_width=True,
+                    key="download_audit_logs_btn"
                 )
                 
             recent_logs = get_recent_logs(15)
-            for log in reversed(recent_logs):
+            for log_idx, log in enumerate(reversed(recent_logs)):
                 st.code(log, language="text")
 
     render_audit_logs_fragment()
@@ -192,11 +170,11 @@ with chat_col:
     st.title("TripCacheAI ✈️")
     st.caption("Multi-Agent Travel Planner (Human-in-the-Loop + Streaming)")
 
-    # Render existing chat history with card support
-    for msg in st.session_state.messages:
+    # Render existing chat history with card support and unique indices
+    for idx, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             if msg["role"] == "assistant":
-                render_hotel_card(msg["content"])
+                render_hotel_card(msg["content"], card_index=idx)
             else:
                 st.markdown(msg["content"])
 
@@ -233,7 +211,7 @@ with chat_col:
                                 status_placeholder.update(label="Rate Limit / Timeout Notice", state="error", expanded=True)
                                 st.warning("The LLM provider is currently rate-limiting requests. Please wait a few seconds and try again.")
                                 
-                            render_hotel_card(final_content)
+                            render_hotel_card(final_content, card_index=999)
                             record_token_usage(result.get("messages", []) if 'result' in locals() else [])
                             
                         st.session_state.messages.append({"role": "assistant", "content": final_content})
@@ -284,7 +262,7 @@ with chat_col:
                     if msgs:
                         final_message_content = msgs[-1].content
 
-            render_hotel_card(final_message_content)
+            render_hotel_card(final_message_content, card_index=888)
             
             current_state = trip_agent.get_state(config)
             if current_state and current_state.values:
@@ -314,7 +292,7 @@ with chat_col:
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("✅ Approve Plan", use_container_width=True):
+            if st.button("✅ Approve Plan", key="approve_plan_btn", use_container_width=True):
                 approval_msg = "I approve this plan. Let's lock it in."
                 trip_agent.update_state(config, {"plan_status": "approved"})
                 st.session_state.messages.append({"role": "user", "content": approval_msg})
@@ -331,7 +309,7 @@ with chat_col:
                 st.rerun()
                 
         with col2:
-            if st.button("🔄 Revise Plan", use_container_width=True):
+            if st.button("🔄 Revise Plan", key="revise_plan_btn", use_container_width=True):
                 trip_agent.update_state(config, {"plan_status": "gathering"})
                 st.session_state.messages.append({
                     "role": "assistant", 
