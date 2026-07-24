@@ -137,8 +137,9 @@ with st.sidebar:
     with st.expander("🛠️ System Audit Logs"):
         col_ref, col_dl = st.columns(2)
         with col_ref:
+            # Use a session state trigger to refresh logs without forcing a harsh reset
             if st.button("Refresh Logs"):
-                pass
+                st.session_state.log_refresh_toggle = not st.session_state.get("log_refresh_toggle", False)
         with col_dl:
             all_logs = get_recent_logs(100)
             log_text = "\n".join(all_logs)
