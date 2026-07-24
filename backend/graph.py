@@ -1,23 +1,22 @@
-import streamlit as st
+import sqlite3
 from typing import Annotated, Optional, Dict, Any
+import streamlit as st
+
 from langchain_core.messages import BaseMessage, trim_messages
 from langgraph.graph.message import add_messages
 from langgraph.graph import MessagesState
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph_supervisor import create_supervisor
-from langgraph.checkpoint.sqlite import SqliteSaver
-from langchain_groq import ChatGroq
-import sqlite3
-from langgraph.checkpoint.sqlite import SqliteSaver
-from backend.agents.hotel_agent import get_hotel_agent
-from backend.agents.context_agent import get_context_agent
-from backend.agents.itinerary_agent import get_itinerary_agent
-from backend.schemas import AgentResponse, NextAction, AgentStatus
-
 
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_anthropic import ChatAnthropic
+
+from backend.agents.hotel_agent import get_hotel_agent
+from backend.agents.context_agent import get_context_agent
+from backend.agents.itinerary_agent import get_itinerary_agent
+from backend.schemas import AgentResponse, NextAction, AgentStatus
 
 # ==========================================
 # 0. DYNAMIC LLM FACTORY
@@ -63,7 +62,7 @@ def get_llm(model_name: str = "llama-3.3-70b-versatile"):
             anthropic_api_key=st.secrets["ANTHROPIC_API_KEY"]
         )
 
-    # 5. Fallback via OpenRouter (If using OpenRouter API key for all models)
+    # 5. Fallback via OpenRouter
     else:
         return ChatOpenAI(
             model=model_name,
@@ -114,7 +113,6 @@ class TripState(MessagesState):
 # ==========================================
 # 3. MEMORY CHECKPOINTER & COMPILATION
 # ==========================================
-# Initialize connection and saver directly
 conn = sqlite3.connect("trip_memory.sqlite", check_same_thread=False)
 memory = SqliteSaver(conn)
 
@@ -131,17 +129,22 @@ def get_compiled_graph(model_name: str = "llama-3.3-70b-versatile"):
     traveler_profile_expert = get_context_agent(model)
     itinerary_agent = get_itinerary_agent(model)
 
+    # CRITICAL: Attach explicit .name attributes to callable function closures
+    hotel_agent.name = "hotel_expert"
+    traveler_profile_expert.name = "traveler_profile_expert"
+    itinerary_agent.name = "itinerary_expert"
+
     workflow = create_supervisor(
         agents=[traveler_profile_expert, hotel_agent, itinerary_agent],
         model=model,
         prompt=(
             "You are the central supervisor of TripCacheAI, a multi-agent travel planning team.\n\n"
             "ROUTER DIRECTIVES:\n"
-            "1. Check the conversation history for basic trip constraints (duration/dates, budget, or number of travelers).\n"
-            "2. IF the user ONLY provides a destination (e.g., 'Trip to Delhi') without duration/dates or budget, route to 'traveler_profile_expert' to gather these details first.\n"
-            "3. IF duration/dates and budget are already present in the message history, route to 'itinerary_expert' to build or refine the itinerary.\n"
+            "1. Check the conversation history for basic trip constraints (destination, dates/duration, budget, travelers, arrival hub).\n"
+            "2. IF any mandatory profile details are missing, route to 'traveler_profile_expert'.\n"
+            "3. IF duration/dates, budget, and destination are already present in the message history, route to 'itinerary_expert'.\n"
             "4. IF the user asks about hotels, accommodation, or places to stay, route to 'hotel_expert'.\n"
-            "5. Do NOT re-route to 'traveler_profile_expert' if the user has already answered the context questions in previous turns."
+            "5. Do NOT re-route to 'traveler_profile_expert' if the traveler profile is complete."
         ),
         state_schema=TripState,
         output_mode="last_message",
@@ -151,5 +154,3 @@ def get_compiled_graph(model_name: str = "llama-3.3-70b-versatile"):
 
 # Default fallback instance for direct module imports
 app = get_compiled_graph("llama-3.3-70b-versatile")
-
-
