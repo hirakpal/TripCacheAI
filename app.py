@@ -30,11 +30,25 @@ def reset_trip():
     st.session_state.baseline_spent = 0
     st.session_state.daily_limit_exceeded = False
 
-def record_token_usage(result_messages):
-    """Reliably extracts prompt tokens from response metadata and calculates savings."""
-    if not result_messages:
-        return
-        
+
+
+def parse_rate_limit_error(error_msg: str):
+    """Extracts actual used, limit, and requested token counts from Groq 429 error messages."""
+    limit = re.search(r'Limit\s+(\d+)', error_msg)
+    used = re.search(r'Used\s+(\d+)', error_msg)
+    requested = re.search(r'Requested\s+(\d+)', error_msg)
+    
+    return {
+        "limit": int(limit.group(1)) if limit else 100000,
+        "used": int(used.group(1)) if used else 0,
+        "requested": int(requested.group(1)) if requested else 0,
+    }
+
+def record_token_usage(result_messages, was_error: bool = False):
+    """Calculates token metrics using real response metadata; ignores failed turns."""
+    if was_error or not result_messages:
+        return  # Don't skew stats on crashed turns
+
     last_msg = result_messages[-1]
     turn_spent = 0
     
@@ -44,17 +58,14 @@ def record_token_usage(result_messages):
     
     if turn_spent == 0:
         msg_content = getattr(last_msg, "content", "")
-        turn_spent = max(500, len(str(msg_content)) // 4)
+        turn_spent = len(str(msg_content)) // 4
 
+    # Calculate actual turn baseline from uncompressed chat length
     ui_chat_chars = sum(len(str(m["content"])) for m in st.session_state.messages)
-    turn_baseline = (ui_chat_chars // 4) + 1200 
+    turn_baseline = max(turn_spent, (ui_chat_chars // 4) + 500)
     
     st.session_state.actual_spent += turn_spent
-    
-    if turn_baseline > turn_spent:
-        st.session_state.baseline_spent += turn_baseline
-    else:
-        st.session_state.baseline_spent += turn_spent
+    st.session_state.baseline_spent += turn_baseline
 
 def render_hotel_card(content: str, card_index: int = 0):
     """Parses hotel recommendations and renders them as sleek inline UI cards with unique keys."""
@@ -153,12 +164,14 @@ with st.sidebar:
 
     # Dynamic Alert Box for Token Quota / Rate Limit Breaches
     if st.session_state.get("daily_limit_exceeded", False):
-        st.error("⚠️ **Daily Token Cap Reached!**")
-        st.caption(
-            "Used **99,849 / 100,000** daily tokens. "
-            "Your last request (501 tokens) breached the cap. "
-            "Please select a different model above to continue."
-        )
+    err_data = st.session_state.get("rate_limit_details", {"used": 0, "limit": 100000, "requested": 0})
+    
+    st.error("⚠️ **Daily Token Cap Reached!**")
+    st.caption(
+        f"Used **{err_data['used']:,} / {err_data['limit']:,}** daily tokens. "
+        f"Your last request ({err_data['requested']:,} tokens) breached the cap. "
+        "Please select a different model above to continue."
+    )
 
     st.markdown("---")
     
@@ -283,9 +296,11 @@ with chat_col:
             except Exception as e:
                 error_msg = str(e)
                 log_event("error", "CRASH", "Graph execution failed or rate limited", error_msg)
+    
                 if "429" in error_msg or "rate_limit" in error_msg or "tokens" in error_msg:
                     st.session_state.daily_limit_exceeded = True
-                
+                    st.session_state.rate_limit_details = parse_rate_limit_error(error_msg)
+    
                 status_placeholder.update(label="API Quota / Rate Limit Breached", state="error", expanded=True)
                 st.warning(f"System Notice: Daily token limit or rate limit reached on model `{st.session_state.selected_model}`. Please switch models in the sidebar.")
                 final_message_content = "Daily token cap or rate limit reached. Please switch models in the left sidebar to continue."
