@@ -254,12 +254,12 @@ with chat_col:
                     if st.button(suggestion, key=f"sug_{idx}_{hash(suggestion)}", use_container_width=True):
                         # Pass the exact suggestion text directly—no custom logic needed!
                         st.session_state.messages.append({"role": "user", "content": suggestion})
-    
+
                         with st.chat_message("assistant"):
-                                status_placeholder = st.status("TripCacheAI is thinking...", expanded=True)
-                                inputs = {"messages": [("user", suggestion)]}
-                                was_error = False
-        
+                            status_placeholder = st.status("TripCacheAI is thinking...", expanded=True)
+                            inputs = {"messages": [("user", suggestion)]}
+                            was_error = False
+
                             try:
                                 result = trip_agent.invoke(inputs, config=config)
                                 final_content = result["messages"][-1].content
@@ -274,11 +274,11 @@ with chat_col:
                                 final_content = "API Rate Limited or Quota Exceeded. Please switch models in the sidebar."
                                 status_placeholder.update(label="Rate Limit / Quota Exceeded", state="error", expanded=True)
                                 st.warning("Quota reached on selected model. Please switch to another model in the sidebar.")
-            
+
                             render_hotel_card(final_content, card_index=999)
                             if not was_error:
                                 record_token_usage(result.get("messages", []) if 'result' in locals() else [])
-        
+
                         st.session_state.messages.append({"role": "assistant", "content": final_content})
                         st.rerun()
 
