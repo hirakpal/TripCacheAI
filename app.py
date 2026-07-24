@@ -1,7 +1,7 @@
 import streamlit as st
 import uuid
 import re
-from backend.graph import app as trip_agent
+from backend.graph import get_compiled_graph
 from backend.audit_logger import log_event, get_recent_logs
 
 # --- 1. Set Layout & Custom CSS ---
@@ -32,7 +32,7 @@ def reset_trip():
     st.session_state.rate_limit_details = {"used": 0, "limit": 100000, "requested": 0}
 
 def parse_rate_limit_error(error_msg: str):
-    """Extracts actual used, limit, and requested token counts from Groq 429 error messages."""
+    """Extracts actual used, limit, and requested token counts from 429 error messages."""
     limit = re.search(r'Limit\s+(\d+)', error_msg)
     used = re.search(r'Used\s+(\d+)', error_msg)
     requested = re.search(r'Requested\s+(\d+)', error_msg)
@@ -134,9 +134,21 @@ with st.sidebar:
     st.subheader("🤖 LLM Selection")
     
     available_models = [
+        # Groq Models
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
         "mixtral-8x7b-32768",
+        
+        # OpenAI Models
+        "gpt-4o",
+        "gpt-4o-mini",
+        
+        # Google Gemini Models
+        "gemini-1.5-pro",
+        "gemini-1.5-flash",
+        
+        # Anthropic Claude Models
+        "claude-3-5-sonnet-20241022",
     ]
     
     selected_model = st.selectbox(
@@ -201,6 +213,9 @@ with st.sidebar:
 
     render_audit_logs_fragment()
 
+# --- Instantiates the Graph with the Selected Model ---
+trip_agent = get_compiled_graph(st.session_state.selected_model)
+
 # --- 5. Main Dual-Pane Layout Structure ---
 chat_col, itinerary_col = st.columns([2, 1], gap="large")
 
@@ -221,7 +236,7 @@ with chat_col:
 
     # --- Contextual AI Suggestion Chips ---
     if st.session_state.messages:
-        config = {"configurable": {"thread_id": st.session_state.thread_id, "model_name": st.session_state.selected_model}}
+        config = {"configurable": {"thread_id": st.session_state.thread_id}}
         current_state = trip_agent.get_state(config)
         current_status = current_state.values.get("plan_status", "gathering") if current_state.values else "gathering"
         
@@ -272,7 +287,7 @@ with chat_col:
             st.markdown(user_input)
         st.session_state.messages.append({"role": "user", "content": user_input})
 
-        config = {"configurable": {"thread_id": st.session_state.thread_id, "model_name": st.session_state.selected_model}}
+        config = {"configurable": {"thread_id": st.session_state.thread_id}}
 
         with st.chat_message("assistant"):
             status_placeholder = st.status("TripCacheAI is thinking...", expanded=True)
@@ -339,7 +354,7 @@ with chat_col:
         st.rerun()
 
     # --- HITL Buttons ---
-    config = {"configurable": {"thread_id": st.session_state.thread_id, "model_name": st.session_state.selected_model}}
+    config = {"configurable": {"thread_id": st.session_state.thread_id}}
     current_state = trip_agent.get_state(config)
     current_status = current_state.values.get("plan_status", "gathering") if current_state.values else "gathering"
 
@@ -389,7 +404,7 @@ with chat_col:
 with itinerary_col:
     st.subheader("📅 Your Itinerary")
     
-    config = {"configurable": {"thread_id": st.session_state.thread_id, "model_name": st.session_state.selected_model}}
+    config = {"configurable": {"thread_id": st.session_state.thread_id}}
     current_state = trip_agent.get_state(config)
     
     if current_state and current_state.values:
