@@ -86,7 +86,8 @@ class TripState(MessagesState):
 # 3. INITIALIZE GROQ LLM
 # ==========================================
 model = ChatGroq(
-    model="llama-3.3-70b-versatile", # The highly available, fast Meta model
+    #model="llama-3.3-70b-versatile", # The highly available, fast Meta model
+    model="llama-3.1-8b-instant"
     temperature=0, 
     max_retries=10, # Auto-recovers from any rogue 429 rate limit errors
     api_key=st.secrets["GROQ_API_KEY"]
