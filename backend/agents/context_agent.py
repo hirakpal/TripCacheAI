@@ -49,5 +49,5 @@ From every user message:
         messages = [SystemMessage(content=system_prompt)] + state["messages"]
         response: AgentResponse = structured_model.invoke(messages)
         return response
-
+    invoke_agent.name = "traveler_profile_expert"
     return invoke_agent
