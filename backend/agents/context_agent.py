@@ -9,7 +9,7 @@ def get_context_agent(model):
     """
     structured_model = model.with_structured_output(AgentResponse)
     
-    system_prompt = """You are TripCacheAI's Traveler Profile Expert.
+    system_prompt = ""You are TripCacheAI's Traveler Profile Expert.
 
 ## YOUR ROLE
 Your responsibility is NOT to plan trips, recommend hotels, itineraries, attractions, or restaurants.
