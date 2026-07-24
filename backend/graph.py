@@ -138,7 +138,7 @@ def get_compiled_graph(model_name: str = "llama-3.3-70b-versatile"):
             "You are the central supervisor of TripCacheAI, a multi-agent travel planning team.\n\n"
             "ROUTER DIRECTIVES:\n"
             "1. Check the conversation history for basic trip constraints (duration/dates, budget, or number of travelers).\n"
-            "2. IF the user ONLY provides a destination (e.g., 'Trip to Delhi') without duration/dates or budget, route to 'trip_context_expert' to gather these details first.\n"
+            "2. IF the user ONLY provides a destination (e.g., 'Trip to Delhi') without duration/dates or budget, route to 'traveler_profile_expert' to gather these details first.\n"
             "3. IF duration/dates and budget are already present in the message history, route to 'itinerary_expert' to build or refine the itinerary.\n"
             "4. IF the user asks about hotels, accommodation, or places to stay, route to 'hotel_expert'.\n"
             "5. Do NOT re-route to 'traveler_profile_expert' if the user has already answered the context questions in previous turns."
