@@ -1,6 +1,6 @@
 from langchain.agents import create_agent
-# from backend.tools.itinerary_tools import search_attractions
-from backend.mock_tools import search_attractions
+from backend.tools.itinerary_tools import search_attractions
+#from backend.mock_tools import search_attractions
 
 def get_itinerary_agent(model):
     return create_agent(
