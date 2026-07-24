@@ -19,6 +19,7 @@ def get_itinerary_agent(model):
             "CRITICAL: Whenever you revise, swap, or update an itinerary, you MUST output the ENTIRE multi-day plan from Day 1 to the final day. Never output just a single modified day. "
             "STRICT ROUTING RULE: You are strictly a text-generator once your tools are finished. Never output fake tool tags."
             "NEVER attempt to transfer control back to the supervisor. NEVER output fake tool calls or tags like <function=transfer_back_to_supervisor>. Just provide your final text response and stop."
+            
         ),
         
     )
