@@ -28,6 +28,7 @@ def reset_trip():
     st.session_state.messages = []
     st.session_state.actual_spent = 0
     st.session_state.baseline_spent = 0
+    st.session_state.daily_limit_exceeded = False
 
 def record_token_usage(result_messages):
     """Reliably extracts prompt tokens from response metadata and calculates savings."""
@@ -109,11 +110,29 @@ if "actual_spent" not in st.session_state:
     st.session_state.actual_spent = 0
 if "baseline_spent" not in st.session_state:
     st.session_state.baseline_spent = 0
+if "daily_limit_exceeded" not in st.session_state:
+    st.session_state.daily_limit_exceeded = False
 
 # --- 4. Sidebar Controls & Token Analytics ---
 with st.sidebar:
     st.subheader("🛠️ Session Controls")
     st.button("🔄 Start New Trip", on_click=reset_trip, use_container_width=True)
+    
+    st.markdown("---")
+    st.subheader("🤖 LLM Selection")
+    
+    available_models = [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768",
+    ]
+    
+    selected_model = st.selectbox(
+        "Active Model:",
+        options=available_models,
+        index=0,
+        key="selected_model"
+    )
     
     st.markdown("---")
     st.subheader("⚡ Token Optimization")
@@ -132,9 +151,17 @@ with st.sidebar:
     st.caption("Context Trimming Efficiency")
     st.progress(min(1.0, perc_saved / 100))
 
+    # Dynamic Alert Box for Token Quota / Rate Limit Breaches
+    if st.session_state.get("daily_limit_exceeded", False):
+        st.error("⚠️ **Daily Token Cap Reached!**")
+        st.caption(
+            "Used **99,849 / 100,000** daily tokens. "
+            "Your last request (501 tokens) breached the cap. "
+            "Please select a different model above to continue."
+        )
+
     st.markdown("---")
     
-    # Wrap audit logs in a fragment so refreshing logs never resets main chat session
     @st.fragment
     def render_audit_logs_fragment():
         with st.expander("🛠️ System Audit Logs", expanded=False):
@@ -170,7 +197,7 @@ with chat_col:
     st.title("TripCacheAI ✈️")
     st.caption("Multi-Agent Travel Planner (Human-in-the-Loop + Streaming)")
 
-    # Render existing chat history with card support and unique indices
+    # Render existing chat history
     for idx, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             if msg["role"] == "assistant":
@@ -178,9 +205,9 @@ with chat_col:
             else:
                 st.markdown(msg["content"])
 
-    # --- Contextual AI Suggestion Chips (Only show after conversation starts) ---
+    # --- Contextual AI Suggestion Chips ---
     if st.session_state.messages:
-        config = {"configurable": {"thread_id": st.session_state.thread_id}}
+        config = {"configurable": {"thread_id": st.session_state.thread_id, "model_name": st.session_state.selected_model}}
         current_state = trip_agent.get_state(config)
         current_status = current_state.values.get("plan_status", "gathering") if current_state.values else "gathering"
         
@@ -205,11 +232,15 @@ with chat_col:
                             try:
                                 result = trip_agent.invoke(inputs, config=config)
                                 final_content = result["messages"][-1].content
+                                st.session_state.daily_limit_exceeded = False
                                 status_placeholder.update(label="Response ready!", state="complete", expanded=False)
                             except Exception as e:
-                                final_content = f"API Rate Limited or Timeout Error: {str(e)}"
-                                status_placeholder.update(label="Rate Limit / Timeout Notice", state="error", expanded=True)
-                                st.warning("The LLM provider is currently rate-limiting requests. Please wait a few seconds and try again.")
+                                error_str = str(e)
+                                if "429" in error_str or "rate_limit" in error_str or "tokens" in error_str:
+                                    st.session_state.daily_limit_exceeded = True
+                                final_content = f"API Rate Limited or Quota Exceeded. Please switch models in the sidebar."
+                                status_placeholder.update(label="Rate Limit / Quota Exceeded", state="error", expanded=True)
+                                st.warning("Quota reached on selected model. Please switch to another model in the sidebar.")
                                 
                             render_hotel_card(final_content, card_index=999)
                             record_token_usage(result.get("messages", []) if 'result' in locals() else [])
@@ -217,13 +248,13 @@ with chat_col:
                         st.session_state.messages.append({"role": "assistant", "content": final_content})
                         st.rerun()
 
-    # Handle standard text input with streaming and rate-limit guard
+    # Handle standard text input
     if user_input := st.chat_input("Where to? Or what would you like to change?"):
         with st.chat_message("user"):
             st.markdown(user_input)
         st.session_state.messages.append({"role": "user", "content": user_input})
 
-        config = {"configurable": {"thread_id": st.session_state.thread_id}}
+        config = {"configurable": {"thread_id": st.session_state.thread_id, "model_name": st.session_state.selected_model}}
 
         with st.chat_message("assistant"):
             status_placeholder = st.status("TripCacheAI is thinking...", expanded=True)
@@ -232,7 +263,7 @@ with chat_col:
             final_message_content = ""
             
             try:
-                log_event("info", "ROUTER", f"Processing user input: {user_input}")
+                log_event("info", "ROUTER", f"Processing user input with {st.session_state.selected_model}: {user_input}")
                 for event in trip_agent.stream(inputs, config=config, stream_mode="updates"):
                     for node_name, node_output in event.items():
                         if node_name != "__end__":
@@ -247,13 +278,17 @@ with chat_col:
 
                 status_placeholder.update(label="Response ready!", state="complete", expanded=False)
                 log_event("info", "SUCCESS", "Turn completed successfully.")
+                st.session_state.daily_limit_exceeded = False
                 
             except Exception as e:
                 error_msg = str(e)
                 log_event("error", "CRASH", "Graph execution failed or rate limited", error_msg)
-                status_placeholder.update(label="API Rate Limit / Timeout - Check Audit Log", state="error", expanded=True)
-                st.warning(f"System Notice: LLM provider rate limit reached. Please wait a few seconds. (Details: {error_msg})")
-                final_message_content = "I encountered a rate limit or timeout processing your request. Please check your audit logs and try again."
+                if "429" in error_msg or "rate_limit" in error_msg or "tokens" in error_msg:
+                    st.session_state.daily_limit_exceeded = True
+                
+                status_placeholder.update(label="API Quota / Rate Limit Breached", state="error", expanded=True)
+                st.warning(f"System Notice: Daily token limit or rate limit reached on model `{st.session_state.selected_model}`. Please switch models in the sidebar.")
+                final_message_content = "Daily token cap or rate limit reached. Please switch models in the left sidebar to continue."
 
             if not final_message_content or "Successfully transferred" in final_message_content:
                 final_state = trip_agent.get_state(config)
@@ -282,7 +317,7 @@ with chat_col:
         st.rerun()
 
     # --- HITL Buttons ---
-    config = {"configurable": {"thread_id": st.session_state.thread_id}}
+    config = {"configurable": {"thread_id": st.session_state.thread_id, "model_name": st.session_state.selected_model}}
     current_state = trip_agent.get_state(config)
     current_status = current_state.values.get("plan_status", "gathering") if current_state.values else "gathering"
 
@@ -299,12 +334,19 @@ with chat_col:
                 
                 with st.spinner("Finalizing..."):
                     inputs = {"messages": [("user", approval_msg)]}
-                    result = trip_agent.invoke(inputs, config=config)
-                    record_token_usage(result.get("messages", []))
+                    try:
+                        result = trip_agent.invoke(inputs, config=config)
+                        record_token_usage(result.get("messages", []))
+                        res_content = result["messages"][-1].content
+                        st.session_state.daily_limit_exceeded = False
+                    except Exception as e:
+                        if "429" in str(e) or "rate_limit" in str(e) or "tokens" in str(e):
+                            st.session_state.daily_limit_exceeded = True
+                        res_content = "Rate limit or quota reached. Switch models in the sidebar."
                     
                     st.session_state.messages.append({
                         "role": "assistant", 
-                        "content": result["messages"][-1].content
+                        "content": res_content
                     })
                 st.rerun()
                 
@@ -323,7 +365,7 @@ with chat_col:
 with itinerary_col:
     st.subheader("📅 Your Itinerary")
     
-    config = {"configurable": {"thread_id": st.session_state.thread_id}}
+    config = {"configurable": {"thread_id": st.session_state.thread_id, "model_name": st.session_state.selected_model}}
     current_state = trip_agent.get_state(config)
     
     if current_state and current_state.values:
