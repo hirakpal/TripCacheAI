@@ -6,7 +6,8 @@ from langgraph.graph import MessagesState
 from langgraph_supervisor import create_supervisor
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain_groq import ChatGroq
-
+import sqlite3
+from langgraph.checkpoint.sqlite import SqliteSaver
 from backend.agents.hotel_agent import get_hotel_agent
 from backend.agents.context_agent import get_context_agent
 from backend.agents.itinerary_agent import get_itinerary_agent
@@ -84,5 +85,7 @@ workflow = create_supervisor(
 # ==========================================
 # 6. MEMORY CHECKPOINTER & COMPILATION
 # ==========================================
-memory = SqliteSaver.from_conn_string("trip_memory.sqlite")
+# Initialize connection and saver directly
+conn = sqlite3.connect("trip_memory.sqlite", check_same_thread=False)
+memory = SqliteSaver(conn)
 app = workflow.compile(checkpointer=memory)
