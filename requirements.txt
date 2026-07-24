@@ -6,7 +6,6 @@ langgraph-supervisor
 langgraph-checkpoint-sqlite
 streamlit
 requests
-langchain-ollama
 langchain-groq
 langchain-google-genai
 langchain-openai
