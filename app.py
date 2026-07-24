@@ -413,9 +413,11 @@ with itinerary_col:
         
         latest_plan = None
         for m in reversed(messages):
-            if getattr(m, "name", "") == "itinerary_expert":
-                if m.content and "Transferring back" not in m.content:
-                    latest_plan = m.content
+            # Check if message is from itinerary_expert AND contains day structure
+            content = getattr(m, "content", "") or ""
+            if getattr(m, "name", "") == "itinerary_expert" or "Day 1" in content:
+                if re.search(r'(?i)Day\s*\d+', content) and "Transferring back" not in content:
+                    latest_plan = content
                     break
         
         if latest_plan:
