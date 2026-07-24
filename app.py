@@ -30,25 +30,23 @@ def reset_trip():
     st.session_state.baseline_spent = 0
 
 def record_token_usage(result_messages):
-    """Reliably extracts prompt tokens from Groq response metadata and calculates savings."""
+    """Reliably extracts prompt tokens from response metadata and calculates savings."""
     if not result_messages:
         return
         
     last_msg = result_messages[-1]
     turn_spent = 0
     
-    # Safely extract token usage across different LangChain message metadata structures
     if hasattr(last_msg, "response_metadata") and last_msg.response_metadata:
         usage = last_msg.response_metadata.get("token_usage", {})
         turn_spent = usage.get("prompt_tokens", 0) or usage.get("total_tokens", 0)
     
-    # Fallback estimation if metadata token count is missing
     if turn_spent == 0:
         msg_content = getattr(last_msg, "content", "")
         turn_spent = max(500, len(str(msg_content)) // 4)
 
     ui_chat_chars = sum(len(str(m["content"])) for m in st.session_state.messages)
-    turn_baseline = (ui_chat_chars // 4) + 1200  # Baseline without trimming
+    turn_baseline = (ui_chat_chars // 4) + 1200 
     
     st.session_state.actual_spent += turn_spent
     
@@ -79,7 +77,6 @@ def get_ai_suggestions(current_status, last_assistant_message, latest_agent_name
     msg_lower = last_assistant_message.lower()
     suggestions = []
 
-    # 1. Context Gathering Phase
     if current_status == "gathering":
         if "dates" in msg_lower or "when" in msg_lower:
             suggestions = ["This weekend (3 days)", "Next month, 5 days", "Custom dates"]
@@ -92,19 +89,16 @@ def get_ai_suggestions(current_status, last_assistant_message, latest_agent_name
         else:
             suggestions = ["Plan a 3-day itinerary", "Find hotels first", "Recommend local food"]
 
-    # 2. Hotel Selection Phase
     elif "hotel" in msg_lower or latest_agent_name == "hotel_agent":
         suggestions = ["Book this hotel", "Show cheaper alternatives", "Look for hotels near Connaught Place"]
 
-    # 3. Itinerary Review / HITL Phase
     elif current_status == "pending_approval":
         suggestions = ["Approve plan", "Add more historical sites", "Swap a day for shopping"]
 
-    # 4. General / Default Fallback
     else:
         suggestions = ["Show me hotels", "Suggest local restaurants", "What about transport options?"]
 
-    return suggestions[:3]  # Return top 3 most relevant suggestions
+    return suggestions[:3]
 
 # --- 3. Initialize Session State ---
 if "thread_id" not in st.session_state:
@@ -144,7 +138,7 @@ with st.sidebar:
         col_ref, col_dl = st.columns(2)
         with col_ref:
             if st.button("Refresh Logs"):
-                st.rerun()
+                pass
         with col_dl:
             all_logs = get_recent_logs(100)
             log_text = "\n".join(all_logs)
@@ -177,14 +171,13 @@ with chat_col:
                 render_hotel_card(msg["content"])
             else:
                 st.markdown(msg["content"])
-    # --- Contextual AI Suggestion Chips ---
+
     # --- Contextual AI Suggestion Chips (Only show after conversation starts) ---
     if st.session_state.messages:
         config = {"configurable": {"thread_id": st.session_state.thread_id}}
         current_state = trip_agent.get_state(config)
         current_status = current_state.values.get("plan_status", "gathering") if current_state.values else "gathering"
         
-        # Extract latest active agent name safely
         messages = current_state.values.get("messages", []) if current_state.values else []
         latest_agent_name = getattr(messages[-1], "name", "") if messages else ""
         
@@ -208,15 +201,17 @@ with chat_col:
                                 final_content = result["messages"][-1].content
                                 status_placeholder.update(label="Response ready!", state="complete", expanded=False)
                             except Exception as e:
-                                final_content = f"Error: {str(e)}"
-                                status_placeholder.update(label="Error", state="error")
+                                final_content = f"API Rate Limited or Timeout Error: {str(e)}"
+                                status_placeholder.update(label="Rate Limit / Timeout Notice", state="error", expanded=True)
+                                st.warning("The LLM provider is currently rate-limiting requests. Please wait a few seconds and try again.")
                                 
                             render_hotel_card(final_content)
-                            record_token_usage(result.get("messages", []))
+                            record_token_usage(result.get("messages", []) if 'result' in locals() else [])
                             
                         st.session_state.messages.append({"role": "assistant", "content": final_content})
                         st.rerun()
-    # Handle standard text input with streaming
+
+    # Handle standard text input with streaming and rate-limit guard
     if user_input := st.chat_input("Where to? Or what would you like to change?"):
         with st.chat_message("user"):
             st.markdown(user_input)
@@ -249,10 +244,10 @@ with chat_col:
                 
             except Exception as e:
                 error_msg = str(e)
-                log_event("error", "CRASH", "Graph execution failed", error_msg)
-                status_placeholder.update(label="Error during execution - Check Audit Log", state="error", expanded=True)
-                st.error(f"System Error: {error_msg}")
-                final_message_content = "I encountered an error processing your request. Check the audit logs for details."
+                log_event("error", "CRASH", "Graph execution failed or rate limited", error_msg)
+                status_placeholder.update(label="API Rate Limit / Timeout - Check Audit Log", state="error", expanded=True)
+                st.warning(f"System Notice: LLM provider rate limit reached. Please wait a few seconds. (Details: {error_msg})")
+                final_message_content = "I encountered a rate limit or timeout processing your request. Please check your audit logs and try again."
 
             if not final_message_content or "Successfully transferred" in final_message_content:
                 final_state = trip_agent.get_state(config)
@@ -261,7 +256,6 @@ with chat_col:
                     if msgs:
                         final_message_content = msgs[-1].content
 
-            # Render clean response using hotel card layout
             render_hotel_card(final_message_content)
             
             current_state = trip_agent.get_state(config)
