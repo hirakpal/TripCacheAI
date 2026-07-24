@@ -1,5 +1,5 @@
 import streamlit as st
-from typing import Annotated, Optional
+from typing import Annotated, Optional, Dict, Any
 from langchain_core.messages import BaseMessage, trim_messages
 from langgraph.graph.message import add_messages
 from langgraph.graph import MessagesState
@@ -11,9 +11,9 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from backend.agents.hotel_agent import get_hotel_agent
 from backend.agents.context_agent import get_context_agent
 from backend.agents.itinerary_agent import get_itinerary_agent
+from backend.schemas import AgentResponse, NextAction, AgentStatus
 
 
-import streamlit as st
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -105,6 +105,10 @@ def token_trimming_reducer(left: list[BaseMessage], right: list[BaseMessage]) ->
 class TripState(MessagesState):
     messages: Annotated[list[BaseMessage], token_trimming_reducer]
     plan_status: Optional[str] = "gathering"
+    traveler_profile: Optional[Dict[str, Any]] = {}
+    suggestion_chips: Optional[list[str]] = []
+    next_action: Optional[str] = NextAction.WAIT_FOR_USER.value
+    next_agent: Optional[str] = None
     remaining_steps: Optional[int] = None
 
 # ==========================================
@@ -124,11 +128,11 @@ def get_compiled_graph(model_name: str = "llama-3.3-70b-versatile"):
     model = get_llm(model_name)
 
     hotel_agent = get_hotel_agent(model)
-    trip_context_agent = get_context_agent(model)
+    traveler_profile_expert = get_context_agent(model)
     itinerary_agent = get_itinerary_agent(model)
 
     workflow = create_supervisor(
-        agents=[trip_context_agent, hotel_agent, itinerary_agent],
+        agents=[traveler_profile_expert, hotel_agent, itinerary_agent],
         model=model,
         prompt=(
             "You are the central supervisor of TripCacheAI, a multi-agent travel planning team.\n\n"
@@ -137,7 +141,7 @@ def get_compiled_graph(model_name: str = "llama-3.3-70b-versatile"):
             "2. IF the user ONLY provides a destination (e.g., 'Trip to Delhi') without duration/dates or budget, route to 'trip_context_expert' to gather these details first.\n"
             "3. IF duration/dates and budget are already present in the message history, route to 'itinerary_expert' to build or refine the itinerary.\n"
             "4. IF the user asks about hotels, accommodation, or places to stay, route to 'hotel_expert'.\n"
-            "5. Do NOT re-route to 'trip_context_expert' if the user has already answered the context questions in previous turns."
+            "5. Do NOT re-route to 'traveler_profile_expert' if the user has already answered the context questions in previous turns."
         ),
         state_schema=TripState,
         output_mode="last_message",
