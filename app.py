@@ -102,7 +102,7 @@ def extract_trip_constraints(messages: list) -> dict:
     }
 
 def get_ai_suggestions(current_status, last_assistant_message, latest_agent_name, messages=None):
-    """Dynamically generates state-aware suggestions based on collected vs missing criteria."""
+    """Dynamically generates contextual AI suggestion chips based on active agent and message content."""
     msg_lower = last_assistant_message.lower()
     constraints = extract_trip_constraints(messages or [])
 
@@ -122,30 +122,15 @@ def get_ai_suggestions(current_status, last_assistant_message, latest_agent_name
 
         return ["Plan itinerary", "Suggest best areas to stay", "Recommend local food"]
 
-    # PHASE 2: Hotel Recommendations or Pending Approval
+    # PHASE 2: Hotel Recommendations
     elif latest_agent_name == "hotel_agent" or "hotel" in msg_lower or "stay" in msg_lower:
-        return ["Find hotels near Park Street", "Show budget options", "Hotels near my arrival point"]
+        return ["Find hotels near central area", "Show budget options", "Hotels near my arrival point"]
 
-    # PHASE 3: Itinerary Generated (Removed duplicate "Approve plan" from chips!)
+    # PHASE 3: Itinerary Generated (Single, non-duplicated block)
     elif current_status == "pending_approval" or latest_agent_name == "itinerary_expert":
         return ["Suggest hotels near sights", "Add more historical sites", "Swap a day for shopping"]
 
     return ["Show me hotels", "Suggest local restaurants", "Transport options"]
-
-    # -------------------------------------------------------------
-    # PHASE 2: Hotel Expert Active (Hotel Recommendations)
-    # -------------------------------------------------------------
-    elif latest_agent_name == "hotel_agent" or "hotel" in msg_lower:
-        return ["Book this hotel", "Show cheaper alternatives", "Look for hotels in central city area"]
-
-    # -------------------------------------------------------------
-    # PHASE 3: Itinerary Generated (Interactive Revision Prompts)
-    # -------------------------------------------------------------
-    elif current_status == "pending_approval" or latest_agent_name == "itinerary_expert":
-        return ["Approve plan", "Add more historical sites", "Swap a day for shopping"]
-
-    # Default fallback
-    return ["Show me hotels", "Suggest local restaurants", "What about transport options?"]
 
 # --- 3. Initialize Session State ---
 if "thread_id" not in st.session_state:
@@ -279,7 +264,7 @@ with chat_col:
         messages = current_state.values.get("messages", []) if current_state.values else []
         latest_agent_name = getattr(messages[-1], "name", "") if messages else ""
         last_msg_text = st.session_state.messages[-1]["content"] if st.session_state.messages else ""
-        # PASS 'messages' IN HERE NOW:
+        
         suggestions = get_ai_suggestions(current_status, last_msg_text, latest_agent_name, messages=messages)
 
         if suggestions:
@@ -288,7 +273,6 @@ with chat_col:
             for idx, suggestion in enumerate(suggestions):
                 with cols[idx]:
                     if st.button(suggestion, key=f"sug_{idx}_{hash(suggestion)}", use_container_width=True):
-                        # Pass the exact suggestion text directly—no custom logic needed!
                         st.session_state.messages.append({"role": "user", "content": suggestion})
 
                         with st.chat_message("assistant"):
@@ -449,7 +433,6 @@ with itinerary_col:
         
         latest_plan = None
         for m in reversed(messages):
-            # Check if message is from itinerary_expert AND contains day structure
             content = getattr(m, "content", "") or ""
             if getattr(m, "name", "") == "itinerary_expert" or "Day 1" in content:
                 if re.search(r'(?i)Day\s*\d+', content) and "Transferring back" not in content:
