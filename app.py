@@ -83,33 +83,64 @@ def render_hotel_card(content: str, card_index: int = 0):
     else:
         st.markdown(content)
 
-def get_ai_suggestions(current_status, last_assistant_message, latest_agent_name):
-    """Dynamically generates contextual AI suggestion chips based on active agent and message content."""
+def extract_trip_constraints(messages: list) -> dict:
+    """Parses existing conversation history to see what slots are already provided."""
+    full_text = " ".join([str(getattr(m, "content", "")) for m in messages]).lower()
+    
+    # Check present criteria
+    has_destination = any(w in full_text for w in ["kolkata", "delhi", "mumbai", "goa", "trip to", "visit"])
+    has_dates = any(w in full_text for w in ["weekend", "jul", "aug", "sept", "oct", "days", "dates", "month"])
+    has_budget = any(w in full_text for w in ["inr", "budget", "k", "rupees", "cost", "tier", "50,000", "25,000"])
+    has_travelers = any(w in full_text for w in ["solo", "couple", "family", "guests", "people", "travelers", "2", "3", "4", "5"])
+    
+    return {
+        "has_destination": has_destination,
+        "has_dates": has_dates,
+        "has_budget": has_budget,
+        "has_travelers": has_travelers
+    }
+
+def get_ai_suggestions(current_status, last_assistant_message, latest_agent_name, messages=None):
+    """Dynamically generates state-aware suggestions based on collected vs missing trip criteria."""
     msg_lower = last_assistant_message.lower()
-    suggestions = []
+    
+    # Analyze conversation history for collected data
+    constraints = extract_trip_constraints(messages or [])
 
-    if current_status == "gathering":
-        if "dates" in msg_lower or "when" in msg_lower:
-            suggestions = ["This weekend (3 days)", "Next month, 5 days", "Custom dates"]
-        elif "budget" in msg_lower:
-            suggestions = ["25,000 INR (Budget)", "50,000 INR (Comfort)", "Luxury tier"]
-        elif "purpose" in msg_lower or "interests" in msg_lower:
-            suggestions = ["Sightseeing & Shopping", "Foodie tour & Culture", "Relaxation & History"]
-        elif "guests" in msg_lower or "traveling" in msg_lower:
-            suggestions = ["Solo traveler", "2 Guests (Couple)", "Family of 4"]
-        else:
-            suggestions = ["Plan a 3-day itinerary", "Find hotels first", "Recommend local food"]
+    # -------------------------------------------------------------
+    # PHASE 1: Data Gathering Phase (Dynamic Missing Field Prompts)
+    # -------------------------------------------------------------
+    if current_status == "gathering" and latest_agent_name != "itinerary_expert":
+        
+        # 1. Missing Duration / Dates
+        if not constraints["has_dates"] or "date" in msg_lower or "when" in msg_lower:
+            return ["This weekend (3 days)", "5 days next month", "3 days next week"]
+            
+        # 2. Missing Budget
+        if not constraints["has_budget"] or "budget" in msg_lower:
+            return ["25,000 INR (Budget)", "50,000 INR (Comfort)", "1,000,000 INR (Luxury)"]
+            
+        # 3. Missing Traveler Count
+        if not constraints["has_travelers"] or "traveler" in msg_lower or "people" in msg_lower:
+            return ["Solo traveler", "2 Guests (Couple)", "Family of 4"]
+            
+        # Default gathering fallback
+        return ["Plan a 3-day itinerary", "Find hotels first", "Recommend local food spots"]
 
-    elif "hotel" in msg_lower or latest_agent_name == "hotel_agent":
-        suggestions = ["Book this hotel", "Show cheaper alternatives", "Look for hotels near Connaught Place"]
+    # -------------------------------------------------------------
+    # PHASE 2: Hotel Expert Active (Hotel Recommendations)
+    # -------------------------------------------------------------
+    elif latest_agent_name == "hotel_agent" or "hotel" in msg_lower:
+        return ["Book this hotel", "Show cheaper alternatives", "Look for hotels in central city area"]
 
-    elif current_status == "pending_approval":
-        suggestions = ["Approve plan", "Add more historical sites", "Swap a day for shopping"]
+    # -------------------------------------------------------------
+    # PHASE 3: Itinerary Generated (Interactive Revision Prompts)
+    # -------------------------------------------------------------
+    elif current_status == "pending_approval" or latest_agent_name == "itinerary_expert":
+        return ["Approve plan", "Add more historical sites", "Swap a day for shopping"]
 
-    else:
-        suggestions = ["Show me hotels", "Suggest local restaurants", "What about transport options?"]
-
-    return suggestions[:3]
+    # Default fallback
+    return ["Show me hotels", "Suggest local restaurants", "What about transport options?"]
 
 # --- 3. Initialize Session State ---
 if "thread_id" not in st.session_state:
@@ -242,9 +273,9 @@ with chat_col:
         
         messages = current_state.values.get("messages", []) if current_state.values else []
         latest_agent_name = getattr(messages[-1], "name", "") if messages else ""
-        
         last_msg_text = st.session_state.messages[-1]["content"] if st.session_state.messages else ""
-        suggestions = get_ai_suggestions(current_status, last_msg_text, latest_agent_name)
+        # PASS 'messages' IN HERE NOW:
+        suggestions = get_ai_suggestions(current_status, last_msg_text, latest_agent_name, messages=messages)
 
         if suggestions:
             st.markdown("<small style='color: gray;'>💡 **Suggested Actions:**</small>", unsafe_allow_html=True)
