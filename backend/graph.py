@@ -1,7 +1,6 @@
-import sqlite3
 import streamlit as st
-from typing import Annotated
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, trim_messages
+from typing import Annotated, Optional
+from langchain_core.messages import BaseMessage, trim_messages
 from langgraph.graph.message import add_messages
 from langgraph.graph import MessagesState
 from langgraph_supervisor import create_supervisor
@@ -13,58 +12,24 @@ from backend.agents.context_agent import get_context_agent
 from backend.agents.itinerary_agent import get_itinerary_agent
 
 # ==========================================
-# 1. ADVANCED SUMMARIZATION & TRIMMING REDUCER
+# 1. OPTIMIZED TOKEN TRIMMING REDUCER
 # ==========================================
 def token_trimming_reducer(left: list[BaseMessage], right: list[BaseMessage]) -> list[BaseMessage]:
     """
-    Combines messages, strips heavy metadata, and summarizes long threads 
-    to maximize token savings and prevent Groq rate limits.
+    Combines messages, strips heavy metadata, and trims older turns deterministically
+    without triggering secondary LLM calls.
     """
     combined = add_messages(left, right)
     
-    # Strip unnecessary heavy metadata to save hidden context overhead
+    # Strip unnecessary heavy metadata to save context overhead
     for msg in combined:
         if hasattr(msg, "response_metadata"):
             msg.response_metadata = {}
             
-    # If the thread gets long (e.g., more than 12 messages), summarize the older context
-    if len(combined) > 12:
-        # Keep the system prompt / first message, summarize the middle, and keep the last 4 messages raw
-        older_messages = combined[1:-4]
-        recent_messages = combined[-4:]
-        
-        # Build a quick text block to summarize
-        conversation_text = "\n".join([f"{m.type}: {m.content}" for m in older_messages if m.content])
-        
-        # Lightweight prompt to create a running summary
-        summary_prompt = (
-            "Summarize the key facts, preferences, dates, budgets, and decisions made in this travel planning conversation "
-            "into a single concise paragraph. Keep all critical constraints:\n\n" + conversation_text
-        )
-        
-        try:
-            # We initialize a quick lightweight call or use the main model to generate the summary
-            summary_model = ChatGroq(
-                model="llama-3.1-8b-instant", 
-                temperature=0, 
-                api_key=st.secrets["GROQ_API_KEY"]
-            )
-            summary_response = summary_model.invoke([HumanMessage(content=summary_prompt)])
-            
-            # Create a compressed history block: [First Message/System] + [Summary Message] + [Recent Turns]
-            compressed_history = [
-                combined[0],
-                SystemMessage(content=f"[Running Conversation Summary]: {summary_response.content}")
-            ] + recent_messages
-            
-            combined = compressed_history
-        except Exception:
-            pass # Fallback to standard trimming if summary API call fails
-            
-    # Final strict token budget cap using trim_messages
+    # Deterministic trimming: keeps system prompt + initial inputs and trims middle turns
     return trim_messages(
         combined,
-        max_tokens=1500, 
+        max_tokens=2500, 
         strategy="last",
         token_counter=lambda msgs: sum(len(str(m.content)) // 4 for m in msgs),
         include_system=True,
@@ -73,37 +38,29 @@ def token_trimming_reducer(left: list[BaseMessage], right: list[BaseMessage]) ->
     )
 
 # ==========================================
-# 2. THE OPTIMIZED STATE SCHEMA
+# 2. OPTIMIZED STATE SCHEMA
 # ==========================================
 class TripState(MessagesState):
-    # Override the default 'messages' behavior from MessagesState
-    # to use our custom trimmer instead of the default add_messages
     messages: Annotated[list[BaseMessage], token_trimming_reducer]
-    plan_status: str  
-    remaining_steps: int 
+    plan_status: Optional[str] = "gathering"
+    remaining_steps: Optional[int] = None
 
 # ==========================================
-# 3. INITIALIZE GROQ LLM
+# 3. INITIALIZE GROQ LLM WITH RETRIES
 # ==========================================
 model = ChatGroq(
-    #model="llama-3.3-70b-versatile", # The highly available, fast Meta model
-    model="llama-3.1-8b-instant",
+    model="llama-3.3-70b-versatile",
     temperature=0, 
-    max_retries=10, # Auto-recovers from any rogue 429 rate limit errors
+    max_retries=5,
     api_key=st.secrets["GROQ_API_KEY"]
 )
-# Initialize the shared LLM using Streamlit secrets
-# model = ChatOpenAI(
-#     model="gpt-4o", 
-#     temperature=0, 
-#     api_key=st.secrets["OPENAI_API_KEY"]
-# )
+
 # ==========================================
 # 4. INSTANTIATE AGENTS
 # ==========================================
 hotel_agent = get_hotel_agent(model)
 trip_context_agent = get_context_agent(model)
-itinerary_agent = get_itinerary_agent(model) 
+itinerary_agent = get_itinerary_agent(model)
 
 # ==========================================
 # 5. SUPERVISOR WORKFLOW
@@ -113,12 +70,12 @@ workflow = create_supervisor(
     model=model,
     prompt=(
         "You are the central supervisor of TripCacheAI, a multi-agent travel planning team. "
-        "STRICT ROUTING RULES: "
-        "1. If the conversation history lacks explicit details on trip duration (days/dates), budget, or traveler count, you MUST route to 'trip_context_expert'. Do NOT route to itinerary_expert. "
-        "2. If the user asks for accommodation, route to 'hotel_expert'. "
-        "3. ONLY route to 'itinerary_expert' if essential parameters (dates, budget, destination) have already been gathered in the conversation history. "
-        "Never skip the context gathering phase if vital trip parameters are missing. "
-        "CRITICAL: Never loop back and forth between agents in a single turn. Route to the appropriate agent once and yield to the user."
+        "Analyze the entire conversation history carefully to check what details the user has provided.\n\n"
+        "STRICT ROUTING RULES:\n"
+        "1. If the user has provided basic details (destination, dates/duration, or budget), route to 'itinerary_expert' to generate or refine the plan.\n"
+        "2. If the user explicitly asks about hotels or accommodation, route to 'hotel_expert'.\n"
+        "3. ONLY route to 'trip_context_expert' if the user's initial input lacks basic travel information and no details have been collected yet.\n"
+        "CRITICAL: Route to the appropriate agent once and yield control back to the user."
     ),
     state_schema=TripState,
     output_mode="last_message",
@@ -127,9 +84,5 @@ workflow = create_supervisor(
 # ==========================================
 # 6. MEMORY CHECKPOINTER & COMPILATION
 # ==========================================
-# check_same_thread=False allows Streamlit's multiple threads to share this connection
-conn = sqlite3.connect("trip_memory.sqlite", check_same_thread=False)
-# Compile with memory
-#memory = InMemorySaver()
-memory = SqliteSaver(conn)
+memory = SqliteSaver.from_conn_string("trip_memory.sqlite")
 app = workflow.compile(checkpointer=memory)
