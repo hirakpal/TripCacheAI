@@ -102,47 +102,37 @@ with chat_col:
 
     # Handle standard text input
     if user_input := st.chat_input("Where to? Or what would you like to change?"):
-        with st.chat_message("user"):
-            st.markdown(user_input)
-        st.session_state.messages.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
+    st.session_state.messages.append({"role": "user", "content": user_input})
 
-        config = {"configurable": {"thread_id": st.session_state.thread_id}}
+    config = {"configurable": {"thread_id": st.session_state.thread_id}}
 
-        with st.chat_message("assistant"):
-            with st.spinner("TripCacheAI is thinking..."):
-                inputs = {"messages": [("user", user_input)]}
-                result = trip_agent.invoke(inputs, config=config)
-                
-                final_message_content = result["messages"][-1].content
-                
-                # Record token metrics
-                record_token_usage(result.get("messages", []))
-                
-                # Check if the planner generated a day-wise plan during this turn
-                plan_generated = False
-                for m in reversed(result["messages"]):
-                    if getattr(m, "type", "") == "human": 
-                        break
-                    
-                    agent_name = getattr(m, "name", "")
-                    if agent_name == "itinerary_expert":
-                        plan_generated = True
-                        break
-                
-                # Commit state transition
-                if plan_generated:
-                    trip_agent.update_state(config, {"plan_status": "pending_approval"})
-                else:
-                    trip_agent.update_state(config, {"plan_status": "gathering"})
-                
-                st.markdown(final_message_content)
-                
-        # Save assistant response cleanly
-        st.session_state.messages.append({
-            "role": "assistant", 
-            "content": final_message_content
-        })
-        st.rerun()
+    with st.chat_message("assistant"):
+        # Use st.write_stream to consume LangGraph's streaming output live
+        def generate_response_stream():
+            inputs = {"messages": [("user", user_input)]}
+            
+            # Stream events from the graph (stream mode "updates" or "messages")
+            for event in trip_agent.stream(inputs, config=config, stream_mode="updates"):
+                # You can even show agent node transitions dynamically if desired!
+                for node_name, node_output in event.items():
+                    if node_name != "__end__" and "messages" in node_output:
+                        latest_msg = node_output["messages"][-1]
+                        # If the message is text from an assistant or tool output, yield it
+                        if hasattr(latest_msg, "content") and latest_msg.content:
+                            # Yield chunks of text for real-time rendering
+                            yield latest_msg.content
+
+        # Streamlit handles the real-time typing effect natively
+        final_message_content = st.write_stream(generate_response_stream())
+        
+    # Save cleanly to session history after streaming completes
+    st.session_state.messages.append({
+        "role": "assistant", 
+        "content": final_message_content
+    })
+    st.rerun()
 
     # --- HITL Buttons (Rendered in Chat Column) ---
     config = {"configurable": {"thread_id": st.session_state.thread_id}}
