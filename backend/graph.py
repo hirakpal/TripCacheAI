@@ -70,13 +70,13 @@ workflow = create_supervisor(
     agents=[trip_context_agent, hotel_agent, itinerary_agent],
     model=model,
     prompt=(
-        "You are the central supervisor of TripCacheAI, a multi-agent travel planning team. "
-        "Analyze the entire conversation history carefully to check what details the user has provided.\n\n"
-        "STRICT ROUTING RULES:\n"
-        "1. If the user has provided basic details (destination, dates/duration, or budget), route to 'itinerary_expert' to generate or refine the plan.\n"
-        "2. If the user explicitly asks about hotels or accommodation, route to 'hotel_expert'.\n"
-        "3. ONLY route to 'trip_context_expert' if the user's initial input lacks basic travel information and no details have been collected yet.\n"
-        "CRITICAL: Route to the appropriate agent once and yield control back to the user."
+        "You are the central supervisor of TripCacheAI, a multi-agent travel planning team.\n\n"
+        "ROUTER DIRECTIVES:\n"
+        "1. Check the conversation history for basic trip constraints (duration/dates, budget, or number of travelers).\n"
+        "2. IF the user ONLY provides a destination (e.g., 'Trip to Delhi') without duration/dates or budget, route to 'trip_context_expert' to gather these details first.\n"
+        "3. IF duration/dates and budget are already present in the message history, route to 'itinerary_expert' to build or refine the itinerary.\n"
+        "4. IF the user asks about hotels, accommodation, or places to stay, route to 'hotel_expert'.\n"
+        "5. Do NOT re-route to 'trip_context_expert' if the user has already answered the context questions in previous turns."
     ),
     state_schema=TripState,
     output_mode="last_message",
