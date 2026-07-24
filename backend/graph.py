@@ -12,6 +12,67 @@ from backend.agents.hotel_agent import get_hotel_agent
 from backend.agents.context_agent import get_context_agent
 from backend.agents.itinerary_agent import get_itinerary_agent
 
+
+import streamlit as st
+from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_anthropic import ChatAnthropic
+
+# ==========================================
+# 0. DYNAMIC LLM FACTORY
+# ==========================================
+def get_llm(model_name: str = "llama-3.3-70b-versatile"):
+    """
+    Instantiates the selected model dynamically based on provider.
+    Supports Groq, OpenAI, Google Gemini, Anthropic Claude, or OpenRouter fallback.
+    """
+    # 1. Groq Models
+    if model_name in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]:
+        return ChatGroq(
+            model=model_name,
+            temperature=0,
+            max_retries=5,
+            api_key=st.secrets["GROQ_API_KEY"]
+        )
+    
+    # 2. ChatGPT / OpenAI Models
+    elif model_name in ["gpt-4o", "gpt-4o-mini"]:
+        return ChatOpenAI(
+            model=model_name,
+            temperature=0,
+            max_retries=5,
+            api_key=st.secrets["OPENAI_API_KEY"]
+        )
+        
+    # 3. Google Gemini Models
+    elif "gemini" in model_name:
+        return ChatGoogleGenerativeAI(
+            model=model_name,
+            temperature=0,
+            max_retries=5,
+            google_api_key=st.secrets["GOOGLE_API_KEY"]
+        )
+        
+    # 4. Anthropic Claude Models
+    elif "claude" in model_name:
+        return ChatAnthropic(
+            model=model_name,
+            temperature=0,
+            max_retries=5,
+            anthropic_api_key=st.secrets["ANTHROPIC_API_KEY"]
+        )
+
+    # 5. Fallback via OpenRouter (If using OpenRouter API key for all models)
+    else:
+        return ChatOpenAI(
+            model=model_name,
+            temperature=0,
+            max_retries=5,
+            openai_api_key=st.secrets["OPENROUTER_API_KEY"],
+            openai_api_base="https://openrouter.ai/api/v1"
+        )
+
 # ==========================================
 # 1. OPTIMIZED TOKEN TRIMMING REDUCER
 # ==========================================
@@ -47,45 +108,44 @@ class TripState(MessagesState):
     remaining_steps: Optional[int] = None
 
 # ==========================================
-# 3. INITIALIZE GROQ LLM WITH RETRIES
-# ==========================================
-model = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    temperature=0, 
-    max_retries=5,
-    api_key=st.secrets["GROQ_API_KEY"]
-)
-
-# ==========================================
-# 4. INSTANTIATE AGENTS
-# ==========================================
-hotel_agent = get_hotel_agent(model)
-trip_context_agent = get_context_agent(model)
-itinerary_agent = get_itinerary_agent(model)
-
-# ==========================================
-# 5. SUPERVISOR WORKFLOW
-# ==========================================
-workflow = create_supervisor(
-    agents=[trip_context_agent, hotel_agent, itinerary_agent],
-    model=model,
-    prompt=(
-        "You are the central supervisor of TripCacheAI, a multi-agent travel planning team.\n\n"
-        "ROUTER DIRECTIVES:\n"
-        "1. Check the conversation history for basic trip constraints (duration/dates, budget, or number of travelers).\n"
-        "2. IF the user ONLY provides a destination (e.g., 'Trip to Delhi') without duration/dates or budget, route to 'trip_context_expert' to gather these details first.\n"
-        "3. IF duration/dates and budget are already present in the message history, route to 'itinerary_expert' to build or refine the itinerary.\n"
-        "4. IF the user asks about hotels, accommodation, or places to stay, route to 'hotel_expert'.\n"
-        "5. Do NOT re-route to 'trip_context_expert' if the user has already answered the context questions in previous turns."
-    ),
-    state_schema=TripState,
-    output_mode="last_message",
-)
-
-# ==========================================
-# 6. MEMORY CHECKPOINTER & COMPILATION
+# 3. MEMORY CHECKPOINTER & COMPILATION
 # ==========================================
 # Initialize connection and saver directly
 conn = sqlite3.connect("trip_memory.sqlite", check_same_thread=False)
 memory = SqliteSaver(conn)
-app = workflow.compile(checkpointer=memory)
+
+# ==========================================
+# 4. DYNAMIC GRAPH BUILDER FACTORY
+# ==========================================
+def get_compiled_graph(model_name: str = "llama-3.3-70b-versatile"):
+    """
+    Builds and compiles the supervisor workflow using the user's selected active model.
+    """
+    model = get_llm(model_name)
+
+    hotel_agent = get_hotel_agent(model)
+    trip_context_agent = get_context_agent(model)
+    itinerary_agent = get_itinerary_agent(model)
+
+    workflow = create_supervisor(
+        agents=[trip_context_agent, hotel_agent, itinerary_agent],
+        model=model,
+        prompt=(
+            "You are the central supervisor of TripCacheAI, a multi-agent travel planning team.\n\n"
+            "ROUTER DIRECTIVES:\n"
+            "1. Check the conversation history for basic trip constraints (duration/dates, budget, or number of travelers).\n"
+            "2. IF the user ONLY provides a destination (e.g., 'Trip to Delhi') without duration/dates or budget, route to 'trip_context_expert' to gather these details first.\n"
+            "3. IF duration/dates and budget are already present in the message history, route to 'itinerary_expert' to build or refine the itinerary.\n"
+            "4. IF the user asks about hotels, accommodation, or places to stay, route to 'hotel_expert'.\n"
+            "5. Do NOT re-route to 'trip_context_expert' if the user has already answered the context questions in previous turns."
+        ),
+        state_schema=TripState,
+        output_mode="last_message",
+    )
+
+    return workflow.compile(checkpointer=memory)
+
+# Default fallback instance for direct module imports
+app = get_compiled_graph("llama-3.3-70b-versatile")
+
+
