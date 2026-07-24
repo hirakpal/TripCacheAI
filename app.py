@@ -30,23 +30,32 @@ def reset_trip():
     st.session_state.baseline_spent = 0
 
 def record_token_usage(result_messages):
-    """Calculates token savings by estimating full context weight vs actual."""
+    """Reliably extracts prompt tokens from Groq response metadata and calculates savings."""
     if not result_messages:
         return
         
     last_msg = result_messages[-1]
-    if hasattr(last_msg, "response_metadata"):
-        turn_spent = last_msg.response_metadata.get("token_usage", {}).get("prompt_tokens", 0)
-        
-        ui_chat_chars = sum(len(str(m["content"])) for m in st.session_state.messages)
-        turn_baseline = (ui_chat_chars // 4) + 1000 
-        
-        st.session_state.actual_spent += turn_spent
-        
-        if turn_baseline > turn_spent:
-            st.session_state.baseline_spent += turn_baseline
-        else:
-            st.session_state.baseline_spent += turn_spent
+    turn_spent = 0
+    
+    # Safely extract token usage across different LangChain message metadata structures
+    if hasattr(last_msg, "response_metadata") and last_msg.response_metadata:
+        usage = last_msg.response_metadata.get("token_usage", {})
+        turn_spent = usage.get("prompt_tokens", 0) or usage.get("total_tokens", 0)
+    
+    # Fallback estimation if metadata token count is missing
+    if turn_spent == 0:
+        msg_content = getattr(last_msg, "content", "")
+        turn_spent = max(500, len(str(msg_content)) // 4)
+
+    ui_chat_chars = sum(len(str(m["content"])) for m in st.session_state.messages)
+    turn_baseline = (ui_chat_chars // 4) + 1200  # Baseline without trimming
+    
+    st.session_state.actual_spent += turn_spent
+    
+    if turn_baseline > turn_spent:
+        st.session_state.baseline_spent += turn_baseline
+    else:
+        st.session_state.baseline_spent += turn_spent
 
 def render_hotel_card(content: str):
     """Parses hotel recommendations and renders them as sleek inline UI cards."""
@@ -132,8 +141,21 @@ with st.sidebar:
 with st.sidebar:
     st.markdown("---")
     with st.expander("🛠️ System Audit Logs"):
-        if st.button("Refresh Logs"):
-            st.rerun()
+        col_ref, col_dl = st.columns(2)
+        with col_ref:
+            if st.button("Refresh Logs"):
+                st.rerun()
+        with col_dl:
+            all_logs = get_recent_logs(100)
+            log_text = "\n".join(all_logs)
+            st.download_button(
+                label="📥 Download",
+                data=log_text,
+                file_name="tripcache_audit_logs.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+            
         recent_logs = get_recent_logs(15)
         for log in reversed(recent_logs):
             st.code(log, language="text")
