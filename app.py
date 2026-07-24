@@ -2,6 +2,7 @@ import streamlit as st
 import uuid
 import re
 from backend.graph import app as trip_agent
+from backend.audit_logger import log_event, get_recent_logs
 
 # --- 1. Set Layout & Custom CSS ---
 st.set_page_config(page_title="TripCacheAI", layout="wide", page_icon="✈️")
@@ -115,11 +116,13 @@ with chat_col:
             final_message_content = ""
             
             try:
+                log_event("info", "ROUTER", f"Processing user input: {user_input}")
                 # Stream updates from LangGraph
                 for event in trip_agent.stream(inputs, config=config, stream_mode="updates"):
                     for node_name, node_output in event.items():
                         if node_name != "__end__":
                             status_placeholder.update(label=f"Active Agent: **{node_name}** processing...", state="running")
+                            log_event("info", "GRAPH_NODE", f"Node executed successfully", f"Node: {node_name}")
                             
                             # Extract messages safely, filtering out internal tool/handoff clutter
                             if "messages" in node_output and node_output["messages"]:
@@ -131,10 +134,14 @@ with chat_col:
                                     final_message_content = content
 
                 status_placeholder.update(label="Response ready!", state="complete", expanded=False)
+                log_event("info", "SUCCESS", "Turn completed successfully.")
+                
             except Exception as e:
-                status_placeholder.update(label="Error during execution", state="error", expanded=True)
-                st.error(str(e))
-                final_message_content = "I encountered an error processing your request."
+                error_msg = str(e)
+                log_event("error", "CRASH", "Graph execution failed", error_msg)
+                status_placeholder.update(label="Error during execution - Check Audit Log", state="error", expanded=True)
+                st.error(f"System Error: {error_msg}")
+                final_message_content = "I encountered an error processing your request. Check the audit logs for details."
 
             # Fallback if content is empty, pull directly from graph state final message
             if not final_message_content or "Successfully transferred" in final_message_content:
