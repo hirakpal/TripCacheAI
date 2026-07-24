@@ -86,6 +86,14 @@ with st.sidebar:
     st.caption("Context Trimming Efficiency")
     st.progress(min(1.0, perc_saved / 100))
 
+with st.sidebar:
+    st.markdown("---")
+    with st.expander("🛠️ System Audit Logs"):
+        if st.button("Refresh Logs"):
+            st.rerun()
+        recent_logs = get_recent_logs(15)
+        for log in reversed(recent_logs):
+            st.code(log, language="text")
 # --- 5. Main Dual-Pane Layout Structure ---
 chat_col, itinerary_col = st.columns([2, 1], gap="large")
 
