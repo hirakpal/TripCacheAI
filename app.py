@@ -65,6 +65,38 @@ def render_hotel_card(content: str):
     else:
         st.markdown(content)
 
+def get_ai_suggestions(current_status, last_assistant_message, latest_agent_name):
+    """Dynamically generates contextual AI suggestion chips based on active agent and message content."""
+    msg_lower = last_assistant_message.lower()
+    suggestions = []
+
+    # 1. Context Gathering Phase
+    if current_status == "gathering":
+        if "dates" in msg_lower or "when" in msg_lower:
+            suggestions = ["This weekend (3 days)", "Next month, 5 days", "Custom dates"]
+        elif "budget" in msg_lower:
+            suggestions = ["25,000 INR (Budget)", "50,000 INR (Comfort)", "Luxury tier"]
+        elif "purpose" in msg_lower or "interests" in msg_lower:
+            suggestions = ["Sightseeing & Shopping", "Foodie tour & Culture", "Relaxation & History"]
+        elif "guests" in msg_lower or "traveling" in msg_lower:
+            suggestions = ["Solo traveler", "2 Guests (Couple)", "Family of 4"]
+        else:
+            suggestions = ["Plan a 3-day itinerary", "Find hotels first", "Recommend local food"]
+
+    # 2. Hotel Selection Phase
+    elif "hotel" in msg_lower or latest_agent_name == "hotel_agent":
+        suggestions = ["Book this hotel", "Show cheaper alternatives", "Look for hotels near Connaught Place"]
+
+    # 3. Itinerary Review / HITL Phase
+    elif current_status == "pending_approval":
+        suggestions = ["Approve plan", "Add more historical sites", "Swap a day for shopping"]
+
+    # 4. General / Default Fallback
+    else:
+        suggestions = ["Show me hotels", "Suggest local restaurants", "What about transport options?"]
+
+    return suggestions[:3]  # Return top 3 most relevant suggestions
+
 # --- 3. Initialize Session State ---
 if "thread_id" not in st.session_state:
     st.session_state.thread_id = str(uuid.uuid4())
@@ -123,7 +155,44 @@ with chat_col:
                 render_hotel_card(msg["content"])
             else:
                 st.markdown(msg["content"])
+    # --- Contextual AI Suggestion Chips ---
+    config = {"configurable": {"thread_id": st.session_state.thread_id}}
+    current_state = trip_agent.get_state(config)
+    current_status = current_state.values.get("plan_status", "gathering") if current_state.values else "gathering"
+    
+    # Extract latest active agent name safely
+    messages = current_state.values.get("messages", []) if current_state.values else []
+    latest_agent_name = getattr(messages[-1], "name", "") if messages else ""
+    
+    last_msg_text = st.session_state.messages[-1]["content"] if st.session_state.messages else ""
+    suggestions = get_ai_suggestions(current_status, last_msg_text, latest_agent_name)
 
+    if suggestions:
+        st.markdown("<small style='color: gray;'>💡 **Suggested Actions:**</small>", unsafe_allow_html=True)
+        cols = st.columns(len(suggestions))
+        for idx, suggestion in enumerate(suggestions):
+            with cols[idx]:
+                if st.button(suggestion, key=f"sug_{idx}_{hash(suggestion)}", use_container_width=True):
+                    # Simulate user typing the suggestion
+                    st.session_state.messages.append({"role": "user", "content": suggestion})
+                    
+                    with st.chat_message("assistant"):
+                        status_placeholder = st.status("TripCacheAI is thinking...", expanded=True)
+                        inputs = {"messages": [("user", suggestion)]}
+                        
+                        try:
+                            result = trip_agent.invoke(inputs, config=config)
+                            final_content = result["messages"][-1].content
+                            status_placeholder.update(label="Response ready!", state="complete", expanded=False)
+                        except Exception as e:
+                            final_content = f"Error: {str(e)}"
+                            status_placeholder.update(label="Error", state="error")
+                            
+                        render_hotel_card(final_content)
+                        record_token_usage(result.get("messages", []))
+                        
+                    st.session_state.messages.append({"role": "assistant", "content": final_content})
+                    st.rerun()
     # Handle standard text input with streaming
     if user_input := st.chat_input("Where to? Or what would you like to change?"):
         with st.chat_message("user"):
