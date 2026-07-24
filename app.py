@@ -133,27 +133,54 @@ with st.sidebar:
     st.progress(min(1.0, perc_saved / 100))
 
 with st.sidebar:
+    st.subheader("🛠️ Session Controls")
+    st.button("🔄 Start New Trip", on_click=reset_trip, use_container_width=True)
+    
     st.markdown("---")
-    with st.expander("🛠️ System Audit Logs"):
-        col_ref, col_dl = st.columns(2)
-        with col_ref:
-            # Use a session state trigger to refresh logs without forcing a harsh reset
-            if st.button("Refresh Logs"):
-                st.session_state.log_refresh_toggle = not st.session_state.get("log_refresh_toggle", False)
-        with col_dl:
-            all_logs = get_recent_logs(100)
-            log_text = "\n".join(all_logs)
-            st.download_button(
-                label="📥 Download",
-                data=log_text,
-                file_name="tripcache_audit_logs.txt",
-                mime="text/plain",
-                use_container_width=True
-            )
-            
-        recent_logs = get_recent_logs(15)
-        for log in reversed(recent_logs):
-            st.code(log, language="text")
+    st.subheader("⚡ Token Optimization")
+    
+    spent = st.session_state.actual_spent
+    baseline = st.session_state.baseline_spent
+    saved = max(0, baseline - spent)
+    perc_saved = (saved / baseline * 100) if baseline > 0 else 0.0
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(label="Spent", value=f"{spent:,}")
+    with col2:
+        st.metric(label="Saved", value=f"{saved:,}", delta=f"{perc_saved:.1f}%")
+        
+    st.caption("Context Trimming Efficiency")
+    st.progress(min(1.0, perc_saved / 100))
+
+with st.sidebar:
+    st.markdown("---")
+    
+    # Wrap the audit logs in a fragment so refreshing logs NEVER resets your main chat or trip session
+    @st.fragment
+    def render_audit_logs_fragment():
+        with st.expander("🛠️ System Audit Logs", expanded=False):
+            col_ref, col_dl = st.columns(2)
+            with col_ref:
+                if st.button("Refresh Logs"):
+                    # Fragment-scoped rerun only updates this block, leaving the chat intact
+                    st.rerun(scope="fragment")
+            with col_dl:
+                all_logs = get_recent_logs(100)
+                log_text = "\n".join(all_logs)
+                st.download_button(
+                    label="📥 Download",
+                    data=log_text,
+                    file_name="tripcache_audit_logs.txt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+                
+            recent_logs = get_recent_logs(15)
+            for log in reversed(recent_logs):
+                st.code(log, language="text")
+
+    render_audit_logs_fragment()
 
 # --- 5. Main Dual-Pane Layout Structure ---
 chat_col, itinerary_col = st.columns([2, 1], gap="large")
