@@ -87,45 +87,50 @@ def extract_trip_constraints(messages: list) -> dict:
     """Parses existing conversation history to see what slots are already provided."""
     full_text = " ".join([str(getattr(m, "content", "")) for m in messages]).lower()
     
-    # Check present criteria
     has_destination = any(w in full_text for w in ["kolkata", "delhi", "mumbai", "goa", "trip to", "visit"])
     has_dates = any(w in full_text for w in ["weekend", "jul", "aug", "sept", "oct", "days", "dates", "month"])
-    has_budget = any(w in full_text for w in ["inr", "budget", "k", "rupees", "cost", "tier", "50,000", "25,000"])
+    has_budget = any(w in full_text for w in ["inr", "budget", "k", "rupees", "cost", "tier", "50,000", "25,000", "30k"])
     has_travelers = any(w in full_text for w in ["solo", "couple", "family", "guests", "people", "travelers", "2", "3", "4", "5"])
+    has_arrival = any(w in full_text for w in ["airport", "station", "howrah", "sealdah", "ccu", "terminal", "arriving at", "flight", "train"])
     
     return {
         "has_destination": has_destination,
         "has_dates": has_dates,
         "has_budget": has_budget,
-        "has_travelers": has_travelers
+        "has_travelers": has_travelers,
+        "has_arrival": has_arrival
     }
 
 def get_ai_suggestions(current_status, last_assistant_message, latest_agent_name, messages=None):
-    """Dynamically generates state-aware suggestions based on collected vs missing trip criteria."""
+    """Dynamically generates state-aware suggestions based on collected vs missing criteria."""
     msg_lower = last_assistant_message.lower()
-    
-    # Analyze conversation history for collected data
     constraints = extract_trip_constraints(messages or [])
 
-    # -------------------------------------------------------------
-    # PHASE 1: Data Gathering Phase (Dynamic Missing Field Prompts)
-    # -------------------------------------------------------------
+    # PHASE 1: Data Gathering Phase
     if current_status == "gathering" and latest_agent_name != "itinerary_expert":
-        
-        # 1. Missing Duration / Dates
         if not constraints["has_dates"] or "date" in msg_lower or "when" in msg_lower:
             return ["This weekend (3 days)", "5 days next month", "3 days next week"]
             
-        # 2. Missing Budget
         if not constraints["has_budget"] or "budget" in msg_lower:
-            return ["25,000 INR (Budget)", "50,000 INR (Comfort)", "1,000,000 INR (Luxury)"]
+            return ["25,000 INR (Budget)", "50,000 INR (Comfort)", "100,000 INR (Luxury)"]
             
-        # 3. Missing Traveler Count
         if not constraints["has_travelers"] or "traveler" in msg_lower or "people" in msg_lower:
             return ["Solo traveler", "2 Guests (Couple)", "Family of 4"]
-            
-        # Default gathering fallback
-        return ["Plan a 3-day itinerary", "Find hotels first", "Recommend local food spots"]
+
+        if not constraints["has_arrival"] or "arrival" in msg_lower or "station" in msg_lower or "airport" in msg_lower:
+            return ["Arriving at Airport (CCU)", "Arriving at Howrah Station", "Arriving at Sealdah Station"]
+
+        return ["Plan itinerary", "Suggest best areas to stay", "Recommend local food"]
+
+    # PHASE 2: Hotel Recommendations or Pending Approval
+    elif latest_agent_name == "hotel_agent" or "hotel" in msg_lower or "stay" in msg_lower:
+        return ["Find hotels near Park Street", "Show budget options", "Hotels near my arrival point"]
+
+    # PHASE 3: Itinerary Generated (Removed duplicate "Approve plan" from chips!)
+    elif current_status == "pending_approval" or latest_agent_name == "itinerary_expert":
+        return ["Suggest hotels near sights", "Add more historical sites", "Swap a day for shopping"]
+
+    return ["Show me hotels", "Suggest local restaurants", "Transport options"]
 
     # -------------------------------------------------------------
     # PHASE 2: Hotel Expert Active (Hotel Recommendations)
