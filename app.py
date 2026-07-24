@@ -89,18 +89,18 @@ with st.sidebar:
 chat_col, itinerary_col = st.columns([2, 1], gap="large")
 
 # ==========================================
-# LEFT PANE: Chat Interface & Input
+# LEFT PANE: Chat Interface & Input (Clean Streaming Fix)
 # ==========================================
 with chat_col:
     st.title("TripCacheAI ✈️")
-    st.caption("Multi-Agent Travel Planner (Human-in-the-Loop)")
+    st.caption("Multi-Agent Travel Planner (Human-in-the-Loop + Streaming)")
 
     # Render existing chat history
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Handle standard text input
+    # Handle standard text input with clean streaming
     if user_input := st.chat_input("Where to? Or what would you like to change?"):
         with st.chat_message("user"):
             st.markdown(user_input)
@@ -109,31 +109,64 @@ with chat_col:
         config = {"configurable": {"thread_id": st.session_state.thread_id}}
 
         with st.chat_message("assistant"):
-            # Use st.write_stream to consume LangGraph's streaming output live
-            def generate_response_stream():
-                inputs = {"messages": [("user", user_input)]}
+            status_placeholder = st.status("TripCacheAI is thinking...", expanded=True)
             
-                # Stream events from the graph (stream mode "updates" or "messages")
+            inputs = {"messages": [("user", user_input)]}
+            final_message_content = ""
+            
+            try:
+                # Stream updates from LangGraph
                 for event in trip_agent.stream(inputs, config=config, stream_mode="updates"):
-                    # You can even show agent node transitions dynamically if desired!
                     for node_name, node_output in event.items():
-                        if node_name != "__end__" and "messages" in node_output:
-                            latest_msg = node_output["messages"][-1]
-                            # If the message is text from an assistant or tool output, yield it
-                            if hasattr(latest_msg, "content") and latest_msg.content:
-                                # Yield chunks of text for real-time rendering
-                                yield latest_msg.content
+                        if node_name != "__end__":
+                            status_placeholder.update(label=f"Active Agent: **{node_name}** processing...", state="running")
+                            
+                            # Extract messages safely, filtering out internal tool/handoff clutter
+                            if "messages" in node_output and node_output["messages"]:
+                                latest_msg = node_output["messages"][-1]
+                                content = getattr(latest_msg, "content", "")
+                                
+                                # Ignore internal handoff technical strings
+                                if content and "Successfully transferred" not in content:
+                                    final_message_content = content
 
-            # Streamlit handles the real-time typing effect natively
-            final_message_content = st.write_stream(generate_response_stream())
-        
-        # Save cleanly to session history after streaming completes
+                status_placeholder.update(label="Response ready!", state="complete", expanded=False)
+            except Exception as e:
+                status_placeholder.update(label="Error during execution", state="error", expanded=True)
+                st.error(str(e))
+                final_message_content = "I encountered an error processing your request."
+
+            # Fallback if content is empty, pull directly from graph state final message
+            if not final_message_content or "Successfully transferred" in final_message_content:
+                final_state = trip_agent.get_state(config)
+                if final_state and final_state.values:
+                    msgs = final_state.values.get("messages", [])
+                    if msgs:
+                        final_message_content = msgs[-1].content
+
+            # Render clean final text
+                st.markdown(final_message_content)
+            else:
+                st.markdown(final_message_content)
+            
+            # Record token metrics & handle HITL state flags
+            current_state = trip_agent.get_state(config)
+            if current_state and current_state.values:
+                all_msgs = current_state.values.get("messages", [])
+                record_token_usage(all_msgs)
+                
+                plan_generated = any(getattr(m, "name", "") == "itinerary_expert" for m in all_msgs[-3:])
+                if plan_generated:
+                    trip_agent.update_state(config, {"plan_status": "pending_approval"})
+                else:
+                    trip_agent.update_state(config, {"plan_status": "gathering"})
+
+        # Save assistant response to session history cleanly
         st.session_state.messages.append({
             "role": "assistant", 
             "content": final_message_content
         })
         st.rerun()
-
     # --- HITL Buttons (Rendered in Chat Column) ---
     config = {"configurable": {"thread_id": st.session_state.thread_id}}
     current_state = trip_agent.get_state(config)
