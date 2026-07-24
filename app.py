@@ -24,34 +24,46 @@ st.markdown("""
 # --- 2. Callbacks & Helper Functions ---
 def reset_trip():
     """Wipes the frontend chat, resets token stats, and generates a new thread ID."""
-    # 1. Generate a brand new LangGraph Thread ID (Clears Backend Memory)
     st.session_state.thread_id = str(uuid.uuid4())
-    # 2. Empty the UI chat bubbles (Clears Frontend Memory)
     st.session_state.messages = []
     st.session_state.actual_spent = 0
     st.session_state.baseline_spent = 0
 
 def record_token_usage(result_messages):
-    """Calculates token savings by estimating the full context weight vs actual."""
+    """Calculates token savings by estimating full context weight vs actual."""
     if not result_messages:
         return
         
     last_msg = result_messages[-1]
     if hasattr(last_msg, "response_metadata"):
-        # Get just the input (prompt) tokens billed by Groq
         turn_spent = last_msg.response_metadata.get("token_usage", {}).get("prompt_tokens", 0)
         
-        # Estimate baseline: UI chat history + roughly 1000 tokens for system prompts/tools
         ui_chat_chars = sum(len(str(m["content"])) for m in st.session_state.messages)
         turn_baseline = (ui_chat_chars // 4) + 1000 
         
         st.session_state.actual_spent += turn_spent
         
-        # Only record savings if the baseline exceeds what Groq actually charged
         if turn_baseline > turn_spent:
             st.session_state.baseline_spent += turn_baseline
         else:
             st.session_state.baseline_spent += turn_spent
+
+def render_hotel_card(content: str):
+    """Parses hotel recommendations and renders them as sleek inline UI cards."""
+    if "Hotel Name:" in content or "The Lalit" in content or "The Imperial" in content:
+        st.markdown("### 🏨 Hotel Recommendation")
+        with st.container(border=True):
+            st.markdown(content)
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Book This Hotel", key=f"book_{hash(content)}"):
+                    st.success("Hotel selected and locked into your trip plan!")
+            with col2:
+                if st.button("🔄 Show Alternatives", key=f"alt_{hash(content)}"):
+                    st.session_state.messages.append({"role": "user", "content": "Can you show me more alternative hotels?"})
+                    st.rerun()
+    else:
+        st.markdown(content)
 
 # --- 3. Initialize Session State ---
 if "thread_id" not in st.session_state:
@@ -74,7 +86,6 @@ with st.sidebar:
     spent = st.session_state.actual_spent
     baseline = st.session_state.baseline_spent
     saved = max(0, baseline - spent)
-    
     perc_saved = (saved / baseline * 100) if baseline > 0 else 0.0
     
     col1, col2 = st.columns(2)
@@ -94,22 +105,26 @@ with st.sidebar:
         recent_logs = get_recent_logs(15)
         for log in reversed(recent_logs):
             st.code(log, language="text")
+
 # --- 5. Main Dual-Pane Layout Structure ---
 chat_col, itinerary_col = st.columns([2, 1], gap="large")
 
 # ==========================================
-# LEFT PANE: Chat Interface & Input (Clean Streaming Fix)
+# LEFT PANE: Chat Interface & Input
 # ==========================================
 with chat_col:
     st.title("TripCacheAI ✈️")
     st.caption("Multi-Agent Travel Planner (Human-in-the-Loop + Streaming)")
 
-    # Render existing chat history
+    # Render existing chat history with card support
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+            if msg["role"] == "assistant":
+                render_hotel_card(msg["content"])
+            else:
+                st.markdown(msg["content"])
 
-    # Handle standard text input with clean streaming
+    # Handle standard text input with streaming
     if user_input := st.chat_input("Where to? Or what would you like to change?"):
         with st.chat_message("user"):
             st.markdown(user_input)
@@ -125,19 +140,15 @@ with chat_col:
             
             try:
                 log_event("info", "ROUTER", f"Processing user input: {user_input}")
-                # Stream updates from LangGraph
                 for event in trip_agent.stream(inputs, config=config, stream_mode="updates"):
                     for node_name, node_output in event.items():
                         if node_name != "__end__":
                             status_placeholder.update(label=f"Active Agent: **{node_name}** processing...", state="running")
                             log_event("info", "GRAPH_NODE", f"Node executed successfully", f"Node: {node_name}")
                             
-                            # Extract messages safely, filtering out internal tool/handoff clutter
                             if "messages" in node_output and node_output["messages"]:
                                 latest_msg = node_output["messages"][-1]
                                 content = getattr(latest_msg, "content", "")
-                                
-                                # Ignore internal handoff technical strings
                                 if content and "Successfully transferred" not in content:
                                     final_message_content = content
 
@@ -151,7 +162,6 @@ with chat_col:
                 st.error(f"System Error: {error_msg}")
                 final_message_content = "I encountered an error processing your request. Check the audit logs for details."
 
-            # Fallback if content is empty, pull directly from graph state final message
             if not final_message_content or "Successfully transferred" in final_message_content:
                 final_state = trip_agent.get_state(config)
                 if final_state and final_state.values:
@@ -159,12 +169,9 @@ with chat_col:
                     if msgs:
                         final_message_content = msgs[-1].content
 
-            # Render clean final text
-                st.markdown(final_message_content)
-            else:
-                st.markdown(final_message_content)
+            # Render clean response using hotel card layout
+            render_hotel_card(final_message_content)
             
-            # Record token metrics & handle HITL state flags
             current_state = trip_agent.get_state(config)
             if current_state and current_state.values:
                 all_msgs = current_state.values.get("messages", [])
@@ -176,13 +183,13 @@ with chat_col:
                 else:
                     trip_agent.update_state(config, {"plan_status": "gathering"})
 
-        # Save assistant response to session history cleanly
         st.session_state.messages.append({
             "role": "assistant", 
             "content": final_message_content
         })
         st.rerun()
-    # --- HITL Buttons (Rendered in Chat Column) ---
+
+    # --- HITL Buttons ---
     config = {"configurable": {"thread_id": st.session_state.thread_id}}
     current_state = trip_agent.get_state(config)
     current_status = current_state.values.get("plan_status", "gathering") if current_state.values else "gathering"
@@ -195,14 +202,12 @@ with chat_col:
         with col1:
             if st.button("✅ Approve Plan", use_container_width=True):
                 approval_msg = "I approve this plan. Let's lock it in."
-                
                 trip_agent.update_state(config, {"plan_status": "approved"})
                 st.session_state.messages.append({"role": "user", "content": approval_msg})
                 
                 with st.spinner("Finalizing..."):
                     inputs = {"messages": [("user", approval_msg)]}
                     result = trip_agent.invoke(inputs, config=config)
-                    
                     record_token_usage(result.get("messages", []))
                     
                     st.session_state.messages.append({
@@ -214,13 +219,11 @@ with chat_col:
         with col2:
             if st.button("🔄 Revise Plan", use_container_width=True):
                 trip_agent.update_state(config, {"plan_status": "gathering"})
-                
                 st.session_state.messages.append({
                     "role": "assistant", 
-                    "content": "No problem! What would you like to change about this itinerary? (e.g., 'Swap day 2 for a beach day', or 'Find a cheaper hotel')"
+                    "content": "No problem! What would you like to change about this itinerary?"
                 })
                 st.rerun()
-
 
 # ==========================================
 # RIGHT PANE: Dedicated Itinerary Display
@@ -234,7 +237,6 @@ with itinerary_col:
     if current_state and current_state.values:
         messages = current_state.values.get("messages", [])
         
-        # Search backwards to find the actual day-by-day plan
         latest_plan = None
         for m in reversed(messages):
             if getattr(m, "name", "") == "itinerary_expert":
@@ -244,9 +246,6 @@ with itinerary_col:
         
         if latest_plan:
             with st.container(height=650, border=True):
-                
-                # --- UPDATED: Bulletproof Tab Parsing Logic ---
-                # 1. More robust regex that handles markdown bold (**Day 1**) or headers (### Day 1)
                 split_regex = r'(?im)^(?=\s*(?:#{1,6}\s*)?(?:\*\*\s*)?Day\s*\d+)'
                 chunks = re.split(split_regex, latest_plan)
                 chunks = [c.strip() for c in chunks if c.strip()]
@@ -254,38 +253,31 @@ with itinerary_col:
                 intro_text = ""
                 day_chunks = []
                 
-                # 2. Categorize chunks
                 for chunk in chunks:
                     if re.search(r'(?i)^\s*(?:#{1,6}\s*)?(?:\*\*\s*)?Day\s*\d+', chunk):
                         day_chunks.append(chunk)
                     else:
                         intro_text += chunk + "\n\n"
                         
-                # 3. FIX for the LLM hallucination (Forgot to write "Day 1")
-                # If we have "Day 2" but the intro text contains schedule details, wrap intro as Day 1.
                 if len(day_chunks) > 0:
                     if intro_text and re.search(r'(?i)(morning|afternoon|evening)', intro_text):
                         day_chunks.insert(0, f"**Day 1**\n\n{intro_text}")
-                        intro_text = "" # Clear intro so it doesn't double-render
+                        intro_text = ""
                         
-                    # Render any remaining intro text (like "Here is your trip to Delhi!")
                     if intro_text.strip():
                         st.markdown(intro_text)
                         
-                    # 4. Extract tab names safely
                     tab_names = []
                     for d in day_chunks:
                         match = re.search(r'(?i)Day\s*\d+', d)
                         tab_names.append(match.group(0).title() if match else "Day")
                         
-                    # 5. Build Streamlit Tabs
                     if len(tab_names) > 0:
                         tabs = st.tabs(tab_names)
                         for i, tab in enumerate(tabs):
                             with tab:
                                 st.markdown(day_chunks[i])
                 else:
-                    # Fallback if no days are detected at all
                     st.markdown(latest_plan)
         else:
             st.info("Your day-wise plan will appear here once generated.")
